@@ -9,58 +9,61 @@ export class MainMenu extends Scene {
     create() {
         const { width, height } = this.scale;
 
-        // Football field background
-        drawField(this, width, height);
+        drawField(this, width, height, 60, 50);
+
+        // Dark overlay
+        const overlay = this.add.graphics();
+        overlay.fillStyle(0x000000, 0.5);
+        overlay.fillRect(0, 0, width, height);
 
         // Title
-        this.add.text(width / 2, height / 2 - 80, 'TVU SNAKE', {
-            fontFamily: 'Arial Black',
-            fontSize: 52,
+        this.add.text(width / 2, height / 2 - 120, 'TVU SNAKE', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 36,
             color: '#ffffff',
             stroke: '#1a1a2e',
-            strokeThickness: 8
+            strokeThickness: 6
         }).setOrigin(0.5);
 
-        // Subtitle
-        this.add.text(width / 2, height / 2 - 20, 'Интервью после матча', {
-            fontFamily: 'Arial',
-            fontSize: 22,
-            color: '#e0e0e0',
+        this.add.text(width / 2, height / 2 - 70, 'Интервью после матча', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 12,
+            color: '#cccccc',
             stroke: '#1a1a2e',
-            strokeThickness: 4
+            strokeThickness: 3
         }).setOrigin(0.5);
 
         // Instructions
-        const instructions = [
-            'Стрелки / WASD / свайп — управление',
-            'Лови игроков для интервью',
-            'Не наступай на кабель!'
+        const lines = [
+            '↑←↓→ / WASD — управление',
+            'свайп на мобильных',
+            '',
+            'Лови игроков для интервью!',
+            'Не наступай на кабель!',
+            'Успей за 5 минут!',
         ];
 
-        instructions.forEach((text, i) => {
-            this.add.text(width / 2, height / 2 + 40 + i * 30, text, {
-                fontFamily: 'Arial',
-                fontSize: 16,
-                color: '#cccccc',
-                stroke: '#1a1a2e',
-                strokeThickness: 3
+        lines.forEach((text, i) => {
+            this.add.text(width / 2, height / 2 - 10 + i * 24, text, {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 9,
+                color: '#aaaaaa',
             }).setOrigin(0.5);
         });
 
         // Start button
         const btn = this.add.text(width / 2, height / 2 + 160, '▶  НАЧАТЬ СЪЁМКУ', {
-            fontFamily: 'Arial Black',
-            fontSize: 28,
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 14,
             color: '#ffffff',
-            backgroundColor: '#e74c3c',
-            padding: { x: 24, y: 12 }
+            backgroundColor: '#cc3333',
+            padding: { x: 20, y: 12 }
         }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
-        btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#c0392b' }));
-        btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#e74c3c' }));
+        btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#aa2222' }));
+        btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#cc3333' }));
         btn.on('pointerdown', () => this.scene.start('Game'));
 
-        // Also start on any key
         this.input.keyboard.once('keydown', () => this.scene.start('Game'));
     }
 }

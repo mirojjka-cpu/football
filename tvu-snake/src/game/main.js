@@ -6,10 +6,10 @@ import { AUTO, Game } from 'phaser';
 
 const config = {
     type: AUTO,
-    width: 800,
-    height: 600,
+    width: 540,
+    height: 960,
     parent: 'game-container',
-    backgroundColor: '#2d8c3c',
+    backgroundColor: '#16213e',
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH

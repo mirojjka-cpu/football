@@ -8,91 +8,96 @@ export class GameOver extends Scene {
 
     init(data) {
         this.finalScore = data.score || 0;
-        this.totalPlayers = data.total || 11;
+        this.totalPlayers = data.total || 21;
         this.won = data.won || false;
+        this.best = data.best || 0;
     }
 
     create() {
         const { width, height } = this.scale;
 
-        drawField(this, width, height);
+        drawField(this, width, height, 60, 50);
 
-        // Darken overlay
+        // Dark overlay
         const overlay = this.add.graphics();
-        overlay.fillStyle(0x000000, 0.6);
+        overlay.fillStyle(0x000000, 0.65);
         overlay.fillRect(0, 0, width, height);
 
         if (this.won) {
-            this.add.text(width / 2, height / 2 - 80, '🏆 ЭФИР ЗАКРЫТ!', {
-                fontFamily: 'Arial Black',
-                fontSize: 42,
+            this.add.text(width / 2, height / 2 - 100, '🏆 ЭФИР ЗАКРЫТ!', {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 22,
                 color: '#ffdd00',
                 stroke: '#000000',
-                strokeThickness: 8,
-                align: 'center'
+                strokeThickness: 6,
             }).setOrigin(0.5);
 
-            this.add.text(width / 2, height / 2 - 20, 'Все интервью записаны!', {
-                fontFamily: 'Arial',
-                fontSize: 22,
+            this.add.text(width / 2, height / 2 - 50, 'Все интервью записаны!', {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 11,
                 color: '#66ff66',
-                stroke: '#000000',
-                strokeThickness: 4,
             }).setOrigin(0.5);
         } else {
-            this.add.text(width / 2, height / 2 - 80, '💥 ОПЕРАТОР УПАЛ!', {
-                fontFamily: 'Arial Black',
-                fontSize: 42,
+            this.add.text(width / 2, height / 2 - 100, '💥 ОПЕРАТОР УПАЛ!', {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 22,
                 color: '#ff4444',
                 stroke: '#000000',
-                strokeThickness: 8,
-                align: 'center'
+                strokeThickness: 6,
             }).setOrigin(0.5);
 
-            this.add.text(width / 2, height / 2 - 20, 'Наступил на кабель...', {
-                fontFamily: 'Arial',
-                fontSize: 22,
+            this.add.text(width / 2, height / 2 - 50, 'Наступил на кабель...', {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 11,
                 color: '#cccccc',
-                stroke: '#000000',
-                strokeThickness: 4,
             }).setOrigin(0.5);
         }
 
-        this.add.text(width / 2, height / 2 + 30, `Интервью: ${this.finalScore} / ${this.totalPlayers}`, {
-            fontFamily: 'Arial Black',
-            fontSize: 26,
+        // Score
+        this.add.text(width / 2, height / 2, `${this.finalScore}`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 48,
             color: '#ffffff',
             stroke: '#000000',
             strokeThickness: 6,
         }).setOrigin(0.5);
 
-        // Restart button
-        const btn = this.add.text(width / 2, height / 2 + 100, '🔄  ПЕРЕСЪЁМКА', {
-            fontFamily: 'Arial Black',
-            fontSize: 26,
+        this.add.text(width / 2, height / 2 + 40, `из ${this.totalPlayers} интервью`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 10,
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, height / 2 + 65, `рекорд: ${this.best}`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 10,
+            color: '#ffcc00',
+        }).setOrigin(0.5);
+
+        // Restart
+        const btn = this.add.text(width / 2, height / 2 + 120, '🔄  ПЕРЕСЪЁМКА', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 14,
             color: '#ffffff',
             backgroundColor: '#2ecc71',
-            padding: { x: 24, y: 12 }
+            padding: { x: 20, y: 12 }
         }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
         btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#27ae60' }));
         btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#2ecc71' }));
         btn.on('pointerdown', () => this.scene.start('Game'));
 
-        // Menu button
-        const menuBtn = this.add.text(width / 2, height / 2 + 160, 'В МЕНЮ', {
-            fontFamily: 'Arial',
-            fontSize: 18,
-            color: '#aaaaaa',
-            stroke: '#000000',
-            strokeThickness: 3,
+        // Menu
+        const menuBtn = this.add.text(width / 2, height / 2 + 170, 'В МЕНЮ', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 10,
+            color: '#888888',
         }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
         menuBtn.on('pointerover', () => menuBtn.setColor('#ffffff'));
-        menuBtn.on('pointerout', () => menuBtn.setColor('#aaaaaa'));
+        menuBtn.on('pointerout', () => menuBtn.setColor('#888888'));
         menuBtn.on('pointerdown', () => this.scene.start('MainMenu'));
 
-        // Any key to restart
         this.input.keyboard.once('keydown', () => this.scene.start('Game'));
     }
 }

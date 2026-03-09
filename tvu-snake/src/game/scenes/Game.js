@@ -1,15 +1,30 @@
 import { Scene } from 'phaser';
 import { drawField } from '../utils/field';
-import { createTextures, SHIRT_COLORS } from '../utils/sprites';
+import { createTextures, TEAM_A, TEAM_B, QUESTIONS, ANSWERS } from '../utils/sprites';
 
-const GRID = 24;          // cell size in px
-const COLS = 33;           // 800 / 24 ≈ 33
-const ROWS = 25;           // 600 / 24 = 25
-const INITIAL_SPEED = 140; // ms per move
-const MIN_SPEED = 60;
-const SPEED_STEP = 3;      // ms faster per interview
-const MARGIN = 2;          // field margin in grid cells
-const TOTAL_PLAYERS = 11;  // players on field
+// Layout
+const W = 540;
+const H = 960;
+const TOP_UI = 60;        // top bar height
+const BOTTOM_UI = 50;     // bottom bar height
+const FIELD_TOP = TOP_UI;
+const FIELD_BOTTOM = H - BOTTOM_UI;
+const FIELD_H = FIELD_BOTTOM - FIELD_TOP;
+
+// Grid
+const GRID = 28;
+const COLS = Math.floor(W / GRID);          // 19
+const ROWS = Math.floor(FIELD_H / GRID);    // 30
+const FIELD_OFFSET_X = (W - COLS * GRID) / 2;
+const FIELD_OFFSET_Y = FIELD_TOP + (FIELD_H - ROWS * GRID) / 2;
+
+// Gameplay
+const INITIAL_SPEED = 160;
+const MIN_SPEED = 70;
+const SPEED_STEP = 3;
+const TOTAL_PLAYERS = 21;
+const PLAYERS_ON_FIELD = 6; // visible at once
+const GAME_TIME = 300;      // 5 minutes in seconds
 
 export class Game extends Scene {
     constructor() {
@@ -17,75 +32,55 @@ export class Game extends Scene {
     }
 
     create() {
-        const { width, height } = this.scale;
-
-        // Draw field
-        drawField(this, width, height);
+        // Draw field with UI offsets
+        drawField(this, W, H, TOP_UI, BOTTOM_UI);
         createTextures(this);
 
         // State
         this.score = 0;
         this.moveTimer = 0;
         this.speed = INITIAL_SPEED;
-        this.direction = { x: 1, y: 0 };
-        this.nextDirection = { x: 1, y: 0 };
-        this.isPaused = false;       // smoke break pause
+        this.direction = { x: 0, y: -1 }; // start moving up
+        this.nextDirection = { x: 0, y: -1 };
+        this.isPaused = false;
         this.isGameOver = false;
         this.interviewsLeft = TOTAL_PLAYERS;
+        this.gameTime = GAME_TIME;
+        this.bestScore = parseInt(localStorage.getItem('tvu_best') || '0');
+        this.playerSpriteIndex = 0;
 
-        // Snake body: array of {x, y} grid positions
+        // Snake
         const startX = Math.floor(COLS / 2);
-        const startY = Math.floor(ROWS / 2);
+        const startY = Math.floor(ROWS / 2) + 3;
         this.snake = [
             { x: startX, y: startY },
-            { x: startX - 1, y: startY },
-            { x: startX - 2, y: startY },
+            { x: startX, y: startY + 1 },
+            { x: startX, y: startY + 2 },
         ];
 
-        // Visual containers
+        // Visuals
         this.snakeSprites = [];
-        this.playerSprites = [];
-        this.cableGraphics = this.add.graphics();
-        this.cableGraphics.setDepth(1);
+        this.cableGraphics = this.add.graphics().setDepth(2);
 
-        // Create snake sprites
+        // Create initial snake visuals
+        this.createSnakeHead();
         this.rebuildSnakeSprites();
 
-        // Spawn football players
+        // Football players
         this.footballPlayers = [];
-        for (let i = 0; i < Math.min(3, TOTAL_PLAYERS); i++) {
+        for (let i = 0; i < Math.min(PLAYERS_ON_FIELD, TOTAL_PLAYERS); i++) {
             this.spawnPlayer();
         }
 
-        // Score text
-        this.scoreText = this.add.text(16, 8, '', {
-            fontFamily: 'Arial Black',
-            fontSize: 18,
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4
-        }).setDepth(10);
-        this.updateScoreText();
+        // --- TOP UI ---
+        this.createTopUI();
 
-        // Interview popup
-        this.interviewText = this.add.text(width / 2, height / 2, '', {
-            fontFamily: 'Arial Black',
-            fontSize: 24,
-            color: '#ffff00',
-            stroke: '#000000',
-            strokeThickness: 6,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(10).setAlpha(0);
+        // --- BOTTOM UI ---
+        this.createBottomUI();
 
-        // Smoke break text
-        this.smokeText = this.add.text(width / 2, height / 2 + 40, '', {
-            fontFamily: 'Arial',
-            fontSize: 16,
-            color: '#cccccc',
-            stroke: '#000000',
-            strokeThickness: 4,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(10).setAlpha(0);
+        // --- Dialog system ---
+        this.dialogContainer = this.add.container(0, 0).setDepth(15);
+        this.dialogContainer.setVisible(false);
 
         // Controls
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -105,11 +100,8 @@ export class Game extends Scene {
             if (!this.swipeStart) return;
             const dx = pointer.x - this.swipeStart.x;
             const dy = pointer.y - this.swipeStart.y;
-            const absDx = Math.abs(dx);
-            const absDy = Math.abs(dy);
-            if (Math.max(absDx, absDy) < 30) return; // too short
-
-            if (absDx > absDy) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
+            if (Math.abs(dx) > Math.abs(dy)) {
                 this.setDirection(dx > 0 ? 1 : -1, 0);
             } else {
                 this.setDirection(0, dy > 0 ? 1 : -1);
@@ -117,54 +109,246 @@ export class Game extends Scene {
             this.swipeStart = null;
         });
 
-        // Smoke particles emitter
+        // Smoke particles
         this.smokeEmitter = this.add.particles(0, 0, 'smoke', {
             speed: { min: 10, max: 30 },
             angle: { min: 240, max: 300 },
             lifespan: 800,
-            scale: { start: 1.2, end: 0 },
-            alpha: { start: 0.7, end: 0 },
-            frequency: -1, // manual emit
+            scale: { start: 1.5, end: 0 },
+            alpha: { start: 0.6, end: 0 },
+            frequency: -1,
         });
-        this.smokeEmitter.setDepth(5);
+        this.smokeEmitter.setDepth(6);
+
+        // Game timer
+        this.timerEvent = this.time.addEvent({
+            delay: 1000,
+            callback: this.tickTimer,
+            callbackScope: this,
+            loop: true,
+        });
+    }
+
+    // --- UI Creation ---
+
+    createTopUI() {
+        // Dark bar bg
+        const topBg = this.add.graphics().setDepth(8);
+        topBg.fillStyle(0x0f1629, 0.95);
+        topBg.fillRect(0, 0, W, TOP_UI);
+
+        // "МАТЧ ИНТЕРВЬЮ" label
+        const label = this.add.graphics().setDepth(9);
+        label.fillStyle(0xcc3333);
+        label.fillRoundedRect(8, 8, 100, 44, 4);
+        this.add.text(58, 18, 'МАТЧ', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 11,
+            color: '#ffffff',
+        }).setOrigin(0.5).setDepth(9);
+        this.add.text(58, 36, 'ИНТЕРВЬЮ', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#ffcccc',
+        }).setOrigin(0.5).setDepth(9);
+
+        // Score (center)
+        this.scoreText = this.add.text(W / 2, 16, '0', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 32,
+            color: '#ffffff',
+        }).setOrigin(0.5, 0).setDepth(9);
+
+        this.add.text(W / 2, 48, 'взято', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#888888',
+        }).setOrigin(0.5, 0).setDepth(9);
+
+        // Right side — remaining + record
+        this.remainText = this.add.text(W - 12, 12, `осталось: ${this.interviewsLeft}`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 10,
+            color: '#cccccc',
+        }).setOrigin(1, 0).setDepth(9);
+
+        this.bestText = this.add.text(W - 12, 32, `рекорд: ${this.bestScore}`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#888888',
+        }).setOrigin(1, 0).setDepth(9);
+    }
+
+    createBottomUI() {
+        // Dark bar bg
+        const botBg = this.add.graphics().setDepth(8);
+        botBg.fillStyle(0x0f1629, 0.95);
+        botBg.fillRect(0, FIELD_BOTTOM, W, BOTTOM_UI);
+
+        // Cable label
+        this.add.text(12, FIELD_BOTTOM + 10, 'кабель:', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 9,
+            color: '#888888',
+        }).setDepth(9);
+
+        // Cable progress bar bg
+        const barX = 12;
+        const barY = FIELD_BOTTOM + 30;
+        const barW = 120;
+        const barH = 10;
+        const barBg = this.add.graphics().setDepth(9);
+        barBg.fillStyle(0x333333);
+        barBg.fillRoundedRect(barX, barY, barW, barH, 3);
+        this.cableBarBg = barBg;
+
+        // Cable progress bar fill
+        this.cableBar = this.add.graphics().setDepth(9);
+        this.updateCableBar();
+
+        // Timer (center bottom)
+        this.timerText = this.add.text(W / 2, FIELD_BOTTOM + 20, '5:00', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 20,
+            color: '#00ff66',
+            stroke: '#003311',
+            strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(9);
+
+        // Smoke status text
+        this.smokeStatusText = this.add.text(W / 2, FIELD_BOTTOM + 40, '', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#aaaaaa',
+        }).setOrigin(0.5).setDepth(9);
+    }
+
+    // --- Snake visuals ---
+
+    createSnakeHead() {
+        // Crew = operator + correspondent side by side
+        const headPos = this.gridToPixel(this.snake[0].x, this.snake[0].y);
+        this.operatorSprite = this.add.image(headPos.x - 8, headPos.y, 'operator')
+            .setDepth(5).setScale(0.7);
+        this.correspondentSprite = this.add.image(headPos.x + 14, headPos.y, 'correspondent')
+            .setDepth(5).setScale(0.7);
+    }
+
+    rebuildSnakeSprites() {
+        this.snakeSprites.forEach(s => s.destroy());
+        this.snakeSprites = [];
+
+        // Skip head (index 0), it's the operator+correspondent
+        for (let i = 1; i < this.snake.length; i++) {
+            const pos = this.gridToPixel(this.snake[i].x, this.snake[i].y);
+            const sprite = this.add.image(pos.x, pos.y, 'cable_dot').setDepth(2);
+            this.snakeSprites.push(sprite);
+        }
+    }
+
+    drawSnake() {
+        // Update head position
+        const headPos = this.gridToPixel(this.snake[0].x, this.snake[0].y);
+
+        // Position operator + correspondent based on direction
+        const dir = this.direction;
+        let opOff = { x: -10, y: 0 };
+        let corrOff = { x: 10, y: 0 };
+        if (dir.y === -1) { opOff = { x: -10, y: 0 }; corrOff = { x: 10, y: 0 }; }
+        if (dir.y === 1) { opOff = { x: 10, y: 0 }; corrOff = { x: -10, y: 0 }; }
+        if (dir.x === 1) { opOff = { x: 0, y: -10 }; corrOff = { x: 0, y: 10 }; }
+        if (dir.x === -1) { opOff = { x: 0, y: 10 }; corrOff = { x: 0, y: -10 }; }
+
+        this.operatorSprite.setPosition(headPos.x + opOff.x, headPos.y + opOff.y);
+        this.correspondentSprite.setPosition(headPos.x + corrOff.x, headPos.y + corrOff.y);
+
+        // Cable line
+        this.cableGraphics.clear();
+        this.cableGraphics.lineStyle(4, 0x111111, 0.9);
+        this.cableGraphics.beginPath();
+
+        const hp = this.gridToPixel(this.snake[0].x, this.snake[0].y);
+        this.cableGraphics.moveTo(hp.x, hp.y);
+
+        // Ensure correct number of body sprites
+        const bodyCount = this.snake.length - 1;
+        while (this.snakeSprites.length < bodyCount) {
+            const sprite = this.add.image(0, 0, 'cable_dot').setDepth(2);
+            this.snakeSprites.push(sprite);
+        }
+        while (this.snakeSprites.length > bodyCount) {
+            this.snakeSprites.pop().destroy();
+        }
+
+        for (let i = 1; i < this.snake.length; i++) {
+            const seg = this.snake[i];
+            const pos = this.gridToPixel(seg.x, seg.y);
+            const prev = this.snake[i - 1];
+            const dist = Math.abs(prev.x - seg.x) + Math.abs(prev.y - seg.y);
+
+            if (dist <= 1) {
+                this.cableGraphics.lineTo(pos.x, pos.y);
+            } else {
+                this.cableGraphics.moveTo(pos.x, pos.y);
+            }
+
+            const sprite = this.snakeSprites[i - 1];
+            sprite.setPosition(pos.x, pos.y);
+
+            // Last segment = TVU pack
+            if (i === this.snake.length - 1) {
+                sprite.setTexture('tvu_pack');
+                sprite.setScale(0.8);
+                sprite.setDepth(3);
+            } else {
+                sprite.setTexture('cable_dot');
+                sprite.setScale(1);
+                sprite.setDepth(2);
+            }
+        }
+        this.cableGraphics.strokePath();
+    }
+
+    // --- Grid helpers ---
+
+    gridToPixel(gx, gy) {
+        return {
+            x: FIELD_OFFSET_X + gx * GRID + GRID / 2,
+            y: FIELD_OFFSET_Y + gy * GRID + GRID / 2,
+        };
     }
 
     setDirection(x, y) {
-        // Prevent 180° turn
         if (this.direction.x === -x && this.direction.y === -y) return;
         this.nextDirection = { x, y };
     }
 
+    // --- Main loop ---
+
     update(time, delta) {
         if (this.isGameOver) return;
-
-        // Handle input
         this.handleInput();
-
         if (this.isPaused) return;
 
-        // Move timer
         this.moveTimer += delta;
         if (this.moveTimer < this.speed) return;
         this.moveTimer = 0;
 
-        // Apply direction
         this.direction = { ...this.nextDirection };
 
-        // Calculate new head position
         const head = this.snake[0];
         const newHead = {
             x: head.x + this.direction.x,
             y: head.y + this.direction.y,
         };
 
-        // Wall collision — wrap around
+        // Wall wrap
         if (newHead.x < 0) newHead.x = COLS - 1;
         if (newHead.x >= COLS) newHead.x = 0;
         if (newHead.y < 0) newHead.y = ROWS - 1;
         if (newHead.y >= ROWS) newHead.y = 0;
 
-        // Self collision (skip head)
+        // Self collision
         for (let i = 1; i < this.snake.length; i++) {
             if (this.snake[i].x === newHead.x && this.snake[i].y === newHead.y) {
                 this.gameOver();
@@ -184,26 +368,24 @@ export class Game extends Scene {
             }
         }
 
-        // Move snake
         this.snake.unshift(newHead);
         if (!ate) {
             this.snake.pop();
         } else {
-            // Remove eaten player
             const eaten = this.footballPlayers.splice(ateIndex, 1)[0];
-            this.removePlayerSprite(eaten);
+            if (eaten.sprite) {
+                this.tweens.killTweensOf(eaten.sprite);
+                eaten.sprite.destroy();
+            }
 
             this.score++;
             this.interviewsLeft--;
             this.speed = Math.max(MIN_SPEED, INITIAL_SPEED - this.score * SPEED_STEP);
 
-            this.updateScoreText();
-
-            // Trigger interview + smoke break
+            this.updateUI();
             this.triggerInterview(eaten);
         }
 
-        // Redraw snake
         this.drawSnake();
     }
 
@@ -215,200 +397,78 @@ export class Game extends Scene {
         else if (cursors.down.isDown || wasd.S.isDown) this.setDirection(0, 1);
     }
 
-    gridToPixel(gx, gy) {
-        return { x: gx * GRID + GRID / 2, y: gy * GRID + GRID / 2 };
-    }
-
-    rebuildSnakeSprites() {
-        // Clear old
-        this.snakeSprites.forEach(s => s.destroy());
-        this.snakeSprites = [];
-
-        this.snake.forEach((seg, i) => {
-            const pos = this.gridToPixel(seg.x, seg.y);
-            let sprite;
-            if (i === 0) {
-                sprite = this.add.image(pos.x, pos.y, 'crew').setDepth(4);
-            } else if (i === this.snake.length - 1) {
-                sprite = this.add.image(pos.x, pos.y, 'tvu').setDepth(3);
-            } else {
-                sprite = this.add.image(pos.x, pos.y, 'cable').setDepth(2);
-            }
-            this.snakeSprites.push(sprite);
-        });
-    }
-
-    drawSnake() {
-        // Ensure correct number of sprites
-        while (this.snakeSprites.length < this.snake.length) {
-            const sprite = this.add.image(0, 0, 'cable').setDepth(2);
-            this.snakeSprites.push(sprite);
-        }
-        while (this.snakeSprites.length > this.snake.length) {
-            this.snakeSprites.pop().destroy();
-        }
-
-        // Draw cable line
-        this.cableGraphics.clear();
-        this.cableGraphics.lineStyle(3, 0x111111, 0.8);
-        this.cableGraphics.beginPath();
-
-        this.snake.forEach((seg, i) => {
-            const pos = this.gridToPixel(seg.x, seg.y);
-            const sprite = this.snakeSprites[i];
-
-            // Set texture
-            if (i === 0) {
-                sprite.setTexture('crew');
-                sprite.setDepth(4);
-                // Rotate head based on direction
-                sprite.setAngle(this.getAngle());
-            } else if (i === this.snake.length - 1) {
-                sprite.setTexture('tvu');
-                sprite.setDepth(3);
-            } else {
-                sprite.setTexture('cable');
-                sprite.setDepth(2);
-            }
-
-            sprite.setPosition(pos.x, pos.y);
-
-            // Cable line
-            if (i === 0) {
-                this.cableGraphics.moveTo(pos.x, pos.y);
-            } else {
-                // Only draw line if not wrapping around
-                const prev = this.snake[i - 1];
-                const dist = Math.abs(prev.x - seg.x) + Math.abs(prev.y - seg.y);
-                if (dist <= 1) {
-                    this.cableGraphics.lineTo(pos.x, pos.y);
-                } else {
-                    this.cableGraphics.moveTo(pos.x, pos.y);
-                }
-            }
-        });
-        this.cableGraphics.strokePath();
-    }
-
-    getAngle() {
-        const { x, y } = this.direction;
-        if (x === 1) return 0;
-        if (x === -1) return 180;
-        if (y === -1) return -90;
-        if (y === 1) return 90;
-        return 0;
-    }
+    // --- Player spawning ---
 
     spawnPlayer() {
         let pos;
         let attempts = 0;
         do {
             pos = {
-                x: Phaser.Math.Between(MARGIN, COLS - MARGIN - 1),
-                y: Phaser.Math.Between(MARGIN, ROWS - MARGIN - 1),
+                x: Phaser.Math.Between(1, COLS - 2),
+                y: Phaser.Math.Between(1, ROWS - 2),
             };
             attempts++;
         } while (this.isOccupied(pos.x, pos.y) && attempts < 100);
-
         if (attempts >= 100) return;
 
-        const player = { x: pos.x, y: pos.y, number: Phaser.Math.Between(1, 99) };
-        this.footballPlayers.push(player);
+        const idx = this.playerSpriteIndex++ % 24;
+        const number = Phaser.Math.Between(1, 99);
+        const player = { x: pos.x, y: pos.y, number, spriteIdx: idx };
 
         const pixelPos = this.gridToPixel(pos.x, pos.y);
-        const color = SHIRT_COLORS[this.footballPlayers.length % SHIRT_COLORS.length];
+        const container = this.add.container(pixelPos.x, pixelPos.y).setDepth(4);
 
-        // Player sprite group
-        const container = this.add.container(pixelPos.x, pixelPos.y);
-        container.setDepth(3);
+        const img = this.add.image(0, 0, `player_${idx}`).setScale(0.5);
+        container.add(img);
 
-        // Colored shirt circle
-        const circle = this.add.graphics();
-        circle.fillStyle(color);
-        circle.fillCircle(0, 0, 10);
-        circle.fillStyle(0xf5c6a0);
-        circle.fillCircle(0, -6, 5); // head
-        container.add(circle);
-
-        // Number
-        const numText = this.add.text(0, 2, `${player.number}`, {
-            fontFamily: 'Arial Black',
-            fontSize: 9,
+        const numText = this.add.text(0, 2, `${number}`, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 6,
             color: '#ffffff',
             stroke: '#000000',
             strokeThickness: 2,
         }).setOrigin(0.5);
         container.add(numText);
 
-        // Idle animation — slight bobbing
+        // Idle bobbing
         this.tweens.add({
             targets: container,
             y: pixelPos.y - 3,
-            duration: 600 + Math.random() * 400,
+            duration: 500 + Math.random() * 500,
             yoyo: true,
             repeat: -1,
             ease: 'Sine.easeInOut'
         });
 
         player.sprite = container;
-    }
-
-    removePlayerSprite(player) {
-        if (player.sprite) {
-            this.tweens.killTweensOf(player.sprite);
-            player.sprite.destroy();
-        }
+        this.footballPlayers.push(player);
     }
 
     isOccupied(x, y) {
-        // Check snake
         for (const seg of this.snake) {
             if (seg.x === x && seg.y === y) return true;
         }
-        // Check other players
         for (const p of this.footballPlayers) {
             if (p.x === x && p.y === y) return true;
         }
         return false;
     }
 
+    // --- Interview + Smoke ---
+
     triggerInterview(eaten) {
         this.isPaused = true;
 
         const headPos = this.gridToPixel(this.snake[0].x, this.snake[0].y);
+        const question = QUESTIONS[Phaser.Math.Between(0, QUESTIONS.length - 1)];
+        const answer = ANSWERS[Phaser.Math.Between(0, ANSWERS.length - 1)];
 
-        // Show interview text
-        const phrases = [
-            `Интервью с #${eaten.number}!`,
-            `#${eaten.number}: "Отличная игра!"`,
-            `#${eaten.number}: "Мы старались!"`,
-            `#${eaten.number}: "Спасибо болельщикам!"`,
-            `#${eaten.number}: "Тренер — лучший!"`,
-            `#${eaten.number}: "Главное — команда!"`,
-        ];
-        const phrase = phrases[Phaser.Math.Between(0, phrases.length - 1)];
+        // Show dialog
+        this.showDialog(headPos.x, headPos.y, question, answer);
 
-        // Mic icon near head
-        const mic = this.add.image(headPos.x + 20, headPos.y - 20, 'mic')
-            .setDepth(10).setScale(0);
-        this.tweens.add({
-            targets: mic,
-            scale: 1.2,
-            duration: 300,
-            ease: 'Back.easeOut',
-        });
-
-        this.interviewText.setText(phrase);
-        this.tweens.add({
-            targets: this.interviewText,
-            alpha: 1,
-            duration: 300,
-        });
-
-        // After 1.5s — smoke break
-        this.time.delayedCall(1500, () => {
-            this.interviewText.setAlpha(0);
-            mic.destroy();
+        // After dialog — smoke break
+        this.time.delayedCall(2500, () => {
+            this.hideDialog();
 
             if (this.interviewsLeft <= 0) {
                 this.victory();
@@ -416,61 +476,170 @@ export class Game extends Scene {
             }
 
             // Smoke break
-            this.smokeText.setText('🚬 Перекур ассистента...');
-            this.tweens.add({
-                targets: this.smokeText,
-                alpha: 1,
-                duration: 300,
-            });
+            this.smokeStatusText.setText('ассистент курит 🚬');
 
-            // Smoke particles from TVU (tail)
             const tail = this.snake[this.snake.length - 1];
             const tailPos = this.gridToPixel(tail.x, tail.y);
-            this.smokeEmitter.setPosition(tailPos.x, tailPos.y - 8);
+            this.smokeEmitter.setPosition(tailPos.x, tailPos.y - 10);
             this.smokeEmitter.explode(8);
 
-            this.time.delayedCall(600, () => {
+            this.time.delayedCall(500, () => {
                 this.smokeEmitter.explode(6);
             });
 
-            // After smoke — resume
-            this.time.delayedCall(1200, () => {
-                this.smokeText.setAlpha(0);
+            // Show "так, перекур!" near the crew
+            const breakText = this.add.text(headPos.x, headPos.y - 30, 'так, перекур!  🚬', {
+                fontFamily: '"Press Start 2P", monospace',
+                fontSize: 8,
+                color: '#cccccc',
+                backgroundColor: '#333333aa',
+                padding: { x: 6, y: 4 },
+            }).setOrigin(0.5).setDepth(15);
+
+            this.time.delayedCall(1500, () => {
+                breakText.destroy();
+                this.smokeStatusText.setText('');
                 this.isPaused = false;
 
-                // Spawn new player if needed
-                if (this.footballPlayers.length < Math.min(3, this.interviewsLeft)) {
+                // Spawn more players
+                while (this.footballPlayers.length < Math.min(PLAYERS_ON_FIELD, this.interviewsLeft)) {
                     this.spawnPlayer();
                 }
             });
         });
     }
 
-    updateScoreText() {
-        this.scoreText.setText(
-            `🎤 Интервью: ${this.score}/${TOTAL_PLAYERS}  |  📏 Кабель: ${this.snake.length}м`
-        );
+    showDialog(x, y, question, answer) {
+        this.dialogContainer.removeAll(true);
+        this.dialogContainer.setVisible(true);
+
+        // Clamp dialog position to screen
+        const dx = Phaser.Math.Clamp(x, 110, W - 110);
+        const dy = Phaser.Math.Clamp(y - 60, FIELD_TOP + 20, FIELD_BOTTOM - 100);
+
+        // Question bubble
+        const qBg = this.add.image(0, 0, 'bubble_question').setOrigin(0.5).setScale(0.8);
+        const qText = this.add.text(0, -4, question, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#cc3333',
+            wordWrap: { width: 140 },
+            align: 'center',
+        }).setOrigin(0.5);
+
+        // Answer bubble (below)
+        const aBg = this.add.image(0, 50, 'bubble').setOrigin(0.5).setScale(0.8);
+        const aText = this.add.text(0, 46, answer, {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 8,
+            color: '#333333',
+            wordWrap: { width: 140 },
+            align: 'center',
+        }).setOrigin(0.5);
+
+        this.dialogContainer.add([qBg, qText, aBg, aText]);
+        this.dialogContainer.setPosition(dx, dy);
+
+        // Animate in
+        this.dialogContainer.setScale(0);
+        this.tweens.add({
+            targets: this.dialogContainer,
+            scale: 1,
+            duration: 300,
+            ease: 'Back.easeOut',
+        });
     }
+
+    hideDialog() {
+        this.tweens.add({
+            targets: this.dialogContainer,
+            scale: 0,
+            duration: 200,
+            onComplete: () => {
+                this.dialogContainer.setVisible(false);
+            }
+        });
+    }
+
+    // --- Timer ---
+
+    tickTimer() {
+        if (this.isPaused || this.isGameOver) return;
+        this.gameTime--;
+        if (this.gameTime <= 0) {
+            this.gameTime = 0;
+            this.gameOver();
+        }
+        this.updateTimerText();
+    }
+
+    updateTimerText() {
+        const m = Math.floor(this.gameTime / 60);
+        const s = this.gameTime % 60;
+        this.timerText.setText(`${m}:${s.toString().padStart(2, '0')}`);
+        if (this.gameTime <= 30) {
+            this.timerText.setColor('#ff4444');
+        } else if (this.gameTime <= 60) {
+            this.timerText.setColor('#ffcc00');
+        }
+    }
+
+    // --- UI Updates ---
+
+    updateUI() {
+        this.scoreText.setText(`${this.score}`);
+        this.remainText.setText(`осталось: ${this.interviewsLeft}`);
+        this.updateCableBar();
+    }
+
+    updateCableBar() {
+        const barX = 12;
+        const barY = FIELD_BOTTOM + 30;
+        const barW = 120;
+        const barH = 10;
+        const fill = Math.min(1, (this.snake.length - 3) / (TOTAL_PLAYERS));
+
+        this.cableBar.clear();
+        // Green → yellow → red gradient based on length
+        let color = 0x00cc66;
+        if (fill > 0.6) color = 0xcccc00;
+        if (fill > 0.8) color = 0xcc3333;
+        this.cableBar.fillStyle(color);
+        this.cableBar.fillRoundedRect(barX, barY, Math.max(4, barW * fill), barH, 3);
+    }
+
+    // --- End states ---
 
     gameOver() {
         this.isGameOver = true;
+        if (this.timerEvent) this.timerEvent.remove();
 
-        // Flash red
+        // Save best
+        if (this.score > this.bestScore) {
+            localStorage.setItem('tvu_best', this.score.toString());
+        }
+
         this.cameras.main.flash(500, 255, 0, 0);
         this.cameras.main.shake(300, 0.02);
 
         this.time.delayedCall(800, () => {
-            this.scene.start('GameOver', { score: this.score, total: TOTAL_PLAYERS });
+            this.scene.start('GameOver', {
+                score: this.score,
+                total: TOTAL_PLAYERS,
+                best: Math.max(this.score, this.bestScore),
+            });
         });
     }
 
     victory() {
         this.isGameOver = true;
-        const { width, height } = this.scale;
+        if (this.timerEvent) this.timerEvent.remove();
 
-        const winText = this.add.text(width / 2, height / 2, '🏆 ВСЕ ИНТЕРВЬЮ ЗАПИСАНЫ!', {
-            fontFamily: 'Arial Black',
-            fontSize: 28,
+        localStorage.setItem('tvu_best', TOTAL_PLAYERS.toString());
+
+        const winText = this.add.text(W / 2, H / 2, '🏆 ЭФИР ЗАКРЫТ!', {
+            fontFamily: '"Press Start 2P", monospace',
+            fontSize: 20,
             color: '#ffdd00',
             stroke: '#000000',
             strokeThickness: 6,
@@ -485,7 +654,12 @@ export class Game extends Scene {
         });
 
         this.time.delayedCall(2500, () => {
-            this.scene.start('GameOver', { score: this.score, total: TOTAL_PLAYERS, won: true });
+            this.scene.start('GameOver', {
+                score: this.score,
+                total: TOTAL_PLAYERS,
+                won: true,
+                best: TOTAL_PLAYERS,
+            });
         });
     }
 }
