@@ -28,27 +28,19 @@ export class Game extends Scene {
     }
 
     create() {
-        // Background + field + crowd — bake to textures for mobile perf
-        // Each drawField/drawCrowd creates a Graphics with hundreds of primitives;
-        // converting to a static texture turns them into a single GPU sprite each.
+        // Background + field + crowd — CanvasTexture (native Canvas 2D with gradients/glow)
         if (!this.textures.exists('_field')) {
-            const fg = drawField(this, W, H, TOP_UI, BOTTOM_UI, CROWD_H, CROWD_H);
-            fg.generateTexture('_field', W, H);
-            fg.destroy();
+            drawField(this, W, H, TOP_UI, BOTTOM_UI, CROWD_H, CROWD_H);
         }
         this.add.image(W / 2, H / 2, '_field').setDepth(-1);
 
         if (!this.textures.exists('_crowdTop')) {
-            const cg = drawCrowd(this, 0, 0, W, CROWD_H);
-            cg.generateTexture('_crowdTop', W, CROWD_H);
-            cg.destroy();
+            drawCrowd(this, 0, 0, W, CROWD_H, '_crowdTop');
         }
         this.add.image(W / 2, TOP_UI + CROWD_H / 2, '_crowdTop').setDepth(0);
 
         if (!this.textures.exists('_crowdBot')) {
-            const cb = drawCrowd(this, 0, 0, W, CROWD_H);
-            cb.generateTexture('_crowdBot', W, CROWD_H);
-            cb.destroy();
+            drawCrowd(this, 0, 0, W, CROWD_H, '_crowdBot');
         }
         this.add.image(W / 2, H - BOTTOM_UI - CROWD_H / 2, '_crowdBot').setDepth(0);
         createTextures(this);
@@ -85,10 +77,10 @@ export class Game extends Scene {
         // Cable graphics (drawn each frame)
         this.cableGfx = this.add.graphics().setDepth(2);
 
-        // Crew sprites (scaled to match field proportions)
-        this.operatorSprite = this.add.image(0, 0, 'operator').setDepth(5).setScale(0.44);
-        this.correspondentSprite = this.add.image(0, 0, 'correspondent').setDepth(5).setScale(0.44);
-        this.assistantSprite = this.add.image(0, 0, 'assistant').setDepth(3).setScale(0.43);
+        // Crew sprites (2x textures, displayed at half scale for crisp rendering)
+        this.operatorSprite = this.add.image(0, 0, 'operator').setDepth(5).setScale(0.22);
+        this.correspondentSprite = this.add.image(0, 0, 'correspondent').setDepth(5).setScale(0.22);
+        this.assistantSprite = this.add.image(0, 0, 'assistant').setDepth(3).setScale(0.215);
 
         // --- Players ---
         this.combo = TEAM_COMBOS[Phaser.Math.Between(0, TEAM_COMBOS.length - 1)];
@@ -105,6 +97,8 @@ export class Game extends Scene {
 
         // Dust particles (from running)
         this.dustParticles = [];
+        // Cable sparks
+        this.cableSparks = [];
         // Separate graphics for particles (avoids bloating cable graphics)
         this.particleGfx = this.add.graphics().setDepth(3);
 
@@ -128,6 +122,7 @@ export class Game extends Scene {
         // --- UI ---
         this.createTopUI();
         this.createBottomUI();
+        this.createTVOverlay();
 
         // --- Input: tap to move ---
         this.input.on('pointerdown', (pointer) => {
@@ -232,6 +227,33 @@ export class Game extends Scene {
         g.beginPath(); g.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
         g.strokePath();
+
+        // Spawn cable sparks every 20 frames
+        if (this.frames % 20 === 0 && this.snakeMoving && pts.length > 4) {
+            for (let s = 0; s < 3; s++) {
+                const idx = Math.floor(Math.random() * (pts.length - 1));
+                const sp = pts[idx];
+                this.cableSparks.push({
+                    x: sp.x + (Math.random() - 0.5) * 4,
+                    y: sp.y + (Math.random() - 0.5) * 4,
+                    vx: (Math.random() - 0.5) * 1.5,
+                    vy: -1 - Math.random() * 1.5,
+                    life: 1,
+                    sz: 1.5 + Math.random() * 2,
+                });
+            }
+        }
+        // Draw sparks
+        this.cableSparks = this.cableSparks.filter(p => p.life > 0);
+        for (const p of this.cableSparks) {
+            p.x += p.vx; p.y += p.vy;
+            p.vy += 0.08; // gravity
+            p.life -= 0.04;
+            p.sz *= 0.97;
+            const bright = p.life > 0.5 ? 0xffee66 : 0xffaa22;
+            g.fillStyle(bright, p.life * 0.8);
+            g.fillCircle(p.x | 0, p.y | 0, p.sz);
+        }
     }
 
     drawCrewSprites() {
@@ -248,19 +270,19 @@ export class Game extends Scene {
         // Operator behind
         this.operatorSprite.setPosition(this.hx - offset * 1.4, this.hy + bob);
         this.operatorSprite.setFlipX(!faceRight);
-        this.operatorSprite.setScale(0.44 * squashX, 0.44 * squashY);
+        this.operatorSprite.setScale(0.22 * squashX, 0.22 * squashY);
 
         // Correspondent in front
         this.correspondentSprite.setPosition(this.hx + offset, this.hy + bob);
         this.correspondentSprite.setFlipX(!faceRight);
-        this.correspondentSprite.setScale(0.44 * squashX, 0.44 * squashY);
+        this.correspondentSprite.setScale(0.22 * squashX, 0.22 * squashY);
 
         // Assistant at tail
         const tail = this.snakeTail();
         if (tail) {
             this.assistantSprite.setPosition(tail.x, tail.y + bobAlt);
             this.assistantSprite.setFlipX(!faceRight);
-            this.assistantSprite.setScale(0.43 * squashX, 0.43 * squashY);
+            this.assistantSprite.setScale(0.215 * squashX, 0.215 * squashY);
             this.assistantSprite.setVisible(true);
         }
     }
@@ -285,7 +307,7 @@ export class Game extends Scene {
         const texIdx = index % 24;
 
         const container = this.add.container(pos.x, pos.y).setDepth(4);
-        const img = this.add.image(0, 0, `player_${texIdx}`).setScale(0.42);
+        const img = this.add.image(0, 0, `player_${texIdx}`).setScale(0.21);
         container.add(img);
 
         const num = index < 11 ? index + 1 : index - 10;
@@ -435,26 +457,58 @@ export class Game extends Scene {
                     this.intTimer = 170;
                     this.snakeStopped = true;
 
-                    // Bounce the player being interviewed
+                    // Excited bounce — player reacts to interview
                     this.tweens.add({
                         targets: p.sprite,
-                        scaleY: { from: 0.9, to: 1.05 },
-                        scaleX: { from: 1.05, to: 0.97 },
-                        duration: 250,
+                        scaleY: { from: 0.85, to: 1.08 },
+                        scaleX: { from: 1.1, to: 0.95 },
+                        duration: 200,
                         yoyo: true,
                         repeat: 2,
                         ease: 'Bounce.easeOut'
                     });
+                    // Correspondent leans forward
+                    this.tweens.add({
+                        targets: this.correspondentSprite,
+                        scaleX: { from: 0.22, to: 0.25 },
+                        scaleY: { from: 0.22, to: 0.20 },
+                        duration: 300,
+                        yoyo: true,
+                        ease: 'Sine.easeInOut'
+                    });
+
+                    // Camera flash from operator
+                    const opX = this.operatorSprite.x, opY = this.operatorSprite.y;
+                    const flash = this.add.rectangle(opX, opY, W * 2, H * 2, 0xffffff)
+                        .setAlpha(0.35).setDepth(18);
+                    this.tweens.add({
+                        targets: flash, alpha: 0, duration: 150,
+                        onComplete: () => flash.destroy()
+                    });
+                    // Light rays from operator
+                    for (let r = 0; r < 5; r++) {
+                        const angle = (Math.random() - 0.5) * Math.PI;
+                        const rayLen = 60 + Math.random() * 80;
+                        const ray = this.add.rectangle(
+                            opX + Math.cos(angle) * rayLen / 2,
+                            opY - 20 + Math.sin(angle) * rayLen / 2,
+                            rayLen, 1.5, 0xffffff
+                        ).setAlpha(0.5).setDepth(18).setAngle(angle * 180 / Math.PI);
+                        this.tweens.add({
+                            targets: ray, alpha: 0, duration: 200 + Math.random() * 100,
+                            onComplete: () => ray.destroy()
+                        });
+                    }
 
                     const playerPhrase = ANSWERS[Phaser.Math.Between(0, ANSWERS.length - 1)];
                     const corrPhrase = QUESTIONS[Phaser.Math.Between(0, QUESTIONS.length - 1)];
 
-                    // Correspondent question — above crew
+                    // Correspondent question first (gets top position)
                     const faceRight = this.snakeAngle > -Math.PI / 2 && this.snakeAngle <= Math.PI / 2;
                     const corrX = faceRight ? this.hx + 22 : this.hx - 22;
-                    this.addBubble(corrX, Math.min(this.hy, p.y) - 10, corrPhrase, 165, 0xfff0f3, '#a00');
-                    // Player phrase — collision avoidance in addBubble prevents overlap
-                    this.addBubble(p.x, p.y, playerPhrase, 130, 0xfffbe6, '#333');
+                    this.addBubble(corrX, Math.min(this.hy, p.y) - 10, corrPhrase, 200, 0xfff0f3, '#a00');
+                    // Player answer below (collision avoidance shifts it down)
+                    this.addBubble(p.x, p.y, playerPhrase, 250, 0xfffbe6, '#333');
                 }
                 break;
             }
@@ -473,16 +527,43 @@ export class Game extends Scene {
             if (this.score > this.bestScore) this.bestScore = this.score;
             this.updateUI();
 
-            // Score popup animation
+            // Mini confetti burst
+            for (let i = 0; i < 15; i++) {
+                const cx = this.hx + (Math.random() - 0.5) * 60;
+                const cy = this.hy - 20;
+                const conf = this.add.rectangle(
+                    cx, cy, 3 + Math.random() * 3, 6 + Math.random() * 6,
+                    [0xffd700, 0xff4444, 0x44aaff, 0x44ff44, 0xff66aa][Math.floor(Math.random() * 5)]
+                ).setDepth(16).setAngle(Math.random() * 360);
+                this.tweens.add({
+                    targets: conf,
+                    y: cy - 80 - Math.random() * 120,
+                    x: cx + (Math.random() - 0.5) * 100,
+                    angle: conf.angle + (Math.random() - 0.5) * 540,
+                    alpha: 0,
+                    duration: 800 + Math.random() * 600,
+                    ease: 'Cubic.easeOut',
+                    onComplete: () => conf.destroy()
+                });
+            }
+
+            // Score popup — juicy pop + float
             const plus = this.add.text(this.hx, this.hy - 40, '+1', {
                 fontFamily: '"Press Start 2P", monospace',
-                fontSize: 22, color: '#ffd700',
-                stroke: '#000', strokeThickness: 4
-            }).setOrigin(0.5).setDepth(15);
+                fontSize: 28, color: '#ffd700',
+                stroke: '#000', strokeThickness: 5
+            }).setOrigin(0.5).setDepth(15).setScale(0.2);
             this.tweens.add({
-                targets: plus, y: plus.y - 50, alpha: 0,
-                duration: 900, ease: 'Cubic.easeOut',
-                onComplete: () => plus.destroy()
+                targets: plus, scaleX: 1.3, scaleY: 1.3,
+                duration: 200, ease: 'Back.easeOut',
+                onComplete: () => {
+                    this.tweens.add({
+                        targets: plus, y: plus.y - 60, alpha: 0,
+                        scaleX: 0.8, scaleY: 0.8,
+                        duration: 800, ease: 'Cubic.easeOut',
+                        onComplete: () => plus.destroy()
+                    });
+                }
             });
 
             // Start smoke break after short delay
@@ -560,15 +641,15 @@ export class Game extends Scene {
     drawDust() {
         const gfx = this.particleGfx;
         this.dustParticles = this.dustParticles.filter(p => p.life > 0);
-        this.dustParticles.forEach(p => {
+        for (const p of this.dustParticles) {
             p.x += p.vx;
             p.y += p.vy;
             p.life -= 0.025;
             p.sz += 0.15;
             p.vx *= 0.97;
             gfx.fillStyle(0x8a7a5a, p.life * 0.25);
-            gfx.fillCircle(Math.round(p.x), Math.round(p.y), p.sz / 2);
-        });
+            gfx.fillCircle(p.x | 0, p.y | 0, p.sz / 2);
+        }
     }
 
     // --- Shadows (sprite-based, GPU-batched) ---
@@ -593,10 +674,9 @@ export class Game extends Scene {
         }
     }
 
-    // --- Bubbles ---
+    // --- Bubbles (gradient + shadow via Graphics, pop-in animation) ---
 
     addBubble(x, y, text, dur = 90, bgColor = 0xffffff, textColor = '#111') {
-        const bg = this.add.graphics().setDepth(12);
         const style = {
             fontFamily: '"Press Start 2P", monospace',
             fontSize: 9,
@@ -606,9 +686,8 @@ export class Game extends Scene {
         };
         const txt = this.add.text(0, 0, text, style).setOrigin(0.5).setDepth(13);
 
-        // Position bubble above the point, clamped within safe area
-        const bw = Math.max(txt.width + 16, 60);
-        const bh = txt.height + 10;
+        const bw = Math.max(txt.width + 18, 60);
+        const bh = txt.height + 12;
         const safeTop = TOP_UI + CROWD_H + 8;
         const safeBottom = H - BOTTOM_UI - CROWD_H - 8;
         let bx = Phaser.Math.Clamp(x, bw / 2 + 8, W - bw / 2 - 8);
@@ -621,51 +700,87 @@ export class Game extends Scene {
         for (const ob of this.bubbles) {
             if (!ob.rect) continue;
             const r = ob.rect;
-            // Check horizontal overlap
             if (bx + bw / 2 > r.x - r.w / 2 && bx - bw / 2 < r.x + r.w / 2) {
-                // Check vertical overlap
                 if (by < r.y + r.h && by + bh > r.y) {
-                    // Push this bubble below the existing one
                     by = r.y + r.h + PAD;
-                    if (by + bh > safeBottom) {
-                        // No room below — push above the existing one
-                        by = r.y - bh - PAD;
-                    }
+                    if (by + bh > safeBottom) by = r.y - bh - PAD;
                 }
             }
         }
 
         txt.setPosition(bx, by + bh / 2);
 
-        // Bubble background
-        bg.fillStyle(bgColor);
-        bg.fillRoundedRect(bx - bw / 2, by, bw, bh, 6);
-        bg.lineStyle(2, 0x1a1a2e);
-        bg.strokeRoundedRect(bx - bw / 2, by, bw, bh, 6);
+        // Background with gradient + shadow
+        const bg = this.add.graphics().setDepth(12);
+        const rc = (bgColor >> 16) & 0xff, gc = (bgColor >> 8) & 0xff, bc = bgColor & 0xff;
+        const left = bx - bw / 2, top = by;
+
+        // Shadow
+        bg.fillStyle(0x000000, 0.18);
+        bg.fillRoundedRect(left + 2, top + 3, bw, bh, 7);
+
+        // Main fill (darker bottom half)
+        const darkColor = Phaser.Display.Color.GetColor(
+            Math.max(0, rc - 25), Math.max(0, gc - 25), Math.max(0, bc - 25)
+        );
+        bg.fillStyle(darkColor);
+        bg.fillRoundedRect(left, top, bw, bh, 7);
+
+        // Lighter top half (gradient effect via overlay)
+        const lightColor = Phaser.Display.Color.GetColor(
+            Math.min(255, rc + 20), Math.min(255, gc + 20), Math.min(255, bc + 20)
+        );
+        bg.fillStyle(lightColor);
+        bg.fillRoundedRect(left, top, bw, Math.ceil(bh * 0.55), 7);
+
+        // Gloss highlight
+        bg.fillStyle(0xffffff, 0.15);
+        bg.fillRoundedRect(left + 3, top + 2, bw - 6, Math.ceil(bh * 0.35), 5);
+
+        // Border
+        bg.lineStyle(1.5, Phaser.Display.Color.GetColor(
+            Math.max(0, rc - 50), Math.max(0, gc - 50), Math.max(0, bc - 50)
+        ), 0.5);
+        bg.strokeRoundedRect(left, top, bw, bh, 7);
+
         // Tail
         const tailUp = by > y;
         if (tailUp) {
-            bg.fillTriangle(bx - 4, by, bx + 4, by, bx, by - 8);
+            bg.fillStyle(lightColor);
+            bg.fillTriangle(bx - 5, top, bx + 5, top, bx, top - 9);
         } else {
-            bg.fillTriangle(bx - 4, by + bh, bx + 4, by + bh, bx, by + bh + 8);
+            bg.fillStyle(darkColor);
+            bg.fillTriangle(bx - 5, top + bh, bx + 5, top + bh, bx, top + bh + 9);
         }
 
-        this.bubbles.push({ bg, txt, life: dur, rect: { x: bx, y: by, w: bw, h: bh } });
+        // Pop-in animation via container
+        const container = this.add.container(bx, by + bh / 2, [bg, txt]).setDepth(12);
+        // Offset children to be relative to container center
+        bg.setPosition(-bx, -(by + bh / 2));
+        txt.setPosition(0, 0);
+
+        container.setScale(0.3);
+        container.setAlpha(0.5);
+        this.tweens.add({
+            targets: container, scaleX: 1, scaleY: 1, alpha: 1,
+            duration: 180, ease: 'Back.easeOut',
+        });
+
+        this.bubbles.push({ container, life: dur, rect: { x: bx, y: by, w: bw, h: bh } });
     }
 
     updateBubbles() {
         this.bubbles = this.bubbles.filter(b => {
             b.life--;
             if (b.life <= 0) {
-                b.bg.destroy();
-                b.txt.destroy();
+                b.container.destroy();
                 return false;
             }
-            // Fade out last 12 frames
-            if (b.life < 12) {
-                const a = b.life / 12;
-                b.bg.setAlpha(a);
-                b.txt.setAlpha(a);
+            // Fade out last 15 frames with float-up
+            if (b.life < 15) {
+                const a = b.life / 15;
+                b.container.setAlpha(a);
+                b.container.y -= 0.3;
             }
             return true;
         });
@@ -673,30 +788,184 @@ export class Game extends Scene {
 
     // --- UI ---
 
-    createTopUI() {
-        const topBg = this.add.graphics().setDepth(8);
-        topBg.fillStyle(0x16213e, 0.95);
-        topBg.fillRect(0, 0, W, TOP_UI);
-        // Red accent line
-        topBg.fillStyle(0xe74c3c);
-        topBg.fillRect(0, TOP_UI - 3, W, 3);
+    createTVOverlay() {
+        // --- "В ЭФИРЕ" badge (top-left, pulsing) ---
+        const badgeW = 90, badgeH = 24;
+        const bKey = '_tvBadge';
+        if (!this.textures.exists(bKey)) {
+            const tex = this.textures.createCanvas(bKey, badgeW, badgeH);
+            const ctx = tex.getContext();
+            const r = 5;
+            ctx.beginPath();
+            ctx.moveTo(r, 0); ctx.lineTo(badgeW - r, 0);
+            ctx.quadraticCurveTo(badgeW, 0, badgeW, r);
+            ctx.lineTo(badgeW, badgeH - r);
+            ctx.quadraticCurveTo(badgeW, badgeH, badgeW - r, badgeH);
+            ctx.lineTo(r, badgeH);
+            ctx.quadraticCurveTo(0, badgeH, 0, badgeH - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(200,30,30,0.85)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,100,100,0.5)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            tex.refresh();
+        }
+        this.tvBadge = this.add.image(F.x + 50, F.y + 14, bKey).setDepth(15).setAlpha(0.9);
+        this.tvBadgeDot = this.add.circle(F.x + 16, F.y + 14, 4, 0xff3333).setDepth(15);
+        this.add.text(F.x + 25, F.y + 14, 'В ЭФИРЕ', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 7, color: '#ffffff',
+        }).setOrigin(0, 0.5).setDepth(15);
+        // Pulse the dot
+        this.tweens.add({
+            targets: this.tvBadgeDot, alpha: { from: 1, to: 0.2 },
+            duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
 
-        // МАТЧ ИНТЕРВЬЮ label
-        const label = this.add.graphics().setDepth(9);
-        label.fillStyle(0xe74c3c);
-        label.fillRoundedRect(8, 6, 100, 50, 6);
-        label.lineStyle(3, 0x1a1a2e);
-        label.strokeRoundedRect(8, 6, 100, 50, 6);
-        this.add.text(58, 18, 'МАТЧ', {
+        // --- REC icon (top-right) ---
+        this.recDot = this.add.circle(F.x + F.w - 14, F.y + 14, 5, 0xff2222).setDepth(15);
+        this.add.text(F.x + F.w - 24, F.y + 14, 'REC', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 7, color: '#ff4444',
+        }).setOrigin(1, 0.5).setDepth(15);
+        this.tweens.add({
+            targets: this.recDot, alpha: { from: 1, to: 0.15 },
+            duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
+
+        // --- Broadcast frame (thin border around field) ---
+        const frameGfx = this.add.graphics().setDepth(6);
+        frameGfx.lineStyle(1.5, 0xffffff, 0.12);
+        frameGfx.strokeRoundedRect(F.x - 2, F.y - 2, F.w + 4, F.h + 4, 6);
+        // Corner brackets for TV look
+        const cb = 14;
+        frameGfx.lineStyle(2, 0xffffff, 0.25);
+        // top-left
+        frameGfx.beginPath(); frameGfx.moveTo(F.x, F.y + cb); frameGfx.lineTo(F.x, F.y); frameGfx.lineTo(F.x + cb, F.y); frameGfx.strokePath();
+        // top-right
+        frameGfx.beginPath(); frameGfx.moveTo(F.x + F.w - cb, F.y); frameGfx.lineTo(F.x + F.w, F.y); frameGfx.lineTo(F.x + F.w, F.y + cb); frameGfx.strokePath();
+        // bottom-left
+        frameGfx.beginPath(); frameGfx.moveTo(F.x, F.y + F.h - cb); frameGfx.lineTo(F.x, F.y + F.h); frameGfx.lineTo(F.x + cb, F.y + F.h); frameGfx.strokePath();
+        // bottom-right
+        frameGfx.beginPath(); frameGfx.moveTo(F.x + F.w - cb, F.y + F.h); frameGfx.lineTo(F.x + F.w, F.y + F.h); frameGfx.lineTo(F.x + F.w, F.y + F.h - cb); frameGfx.strokePath();
+
+        // --- Crawling ticker (news line at bottom of field) ---
+        const tickerH = 20;
+        const tickerY = F.y + F.h - tickerH / 2 - 4;
+        const tickerBg = this.add.rectangle(W / 2, tickerY, F.w, tickerH, 0x0c1528, 0.8).setDepth(7);
+        // Gold top line
+        this.add.rectangle(W / 2, tickerY - tickerH / 2, F.w, 1, 0xffc864, 0.4).setDepth(7);
+
+        const headlines = [
+            'СРОЧНО: съёмочная группа ведёт репортаж прямо с поля',
+            'ЭКСКЛЮЗИВ: корреспондент берёт интервью у игроков',
+            'ВНИМАНИЕ: ассистент снова ушёл на перекур',
+            'МАТЧ ДНЯ: полный стадион, зрители в восторге',
+            'BREAKING: кабель запутался, оператор в шоке',
+        ];
+        const fullText = headlines.join('   ★   ');
+        this.tickerText = this.add.text(F.x + F.w, tickerY, fullText, {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 8, color: '#cccccc',
+        }).setOrigin(0, 0.5).setDepth(7);
+        this._tickerFullW = this.tickerText.width;
+        this._tickerOffset = 0;
+    }
+
+    createTopUI() {
+        // Gradient top panel via CanvasTexture
+        const topKey = '_uiTop';
+        if (!this.textures.exists(topKey)) {
+            const tex = this.textures.createCanvas(topKey, W, TOP_UI);
+            const ctx = tex.getContext();
+            const grad = ctx.createLinearGradient(0, 0, 0, TOP_UI);
+            grad.addColorStop(0, '#0c1528');
+            grad.addColorStop(0.7, '#16213e');
+            grad.addColorStop(1, '#1c2a4a');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, TOP_UI);
+            // Subtle noise overlay
+            for (let i = 0; i < 300; i++) {
+                const nx = Math.random() * W, ny = Math.random() * TOP_UI;
+                ctx.fillStyle = `rgba(255,255,255,${0.01 + Math.random() * 0.02})`;
+                ctx.fillRect(nx, ny, 1, 1);
+            }
+            // Red accent line with glow
+            ctx.save();
+            ctx.shadowColor = 'rgba(231,76,60,0.6)';
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(0, TOP_UI - 3, W, 3);
+            ctx.restore();
+            // Gold trim
+            ctx.fillStyle = 'rgba(243,156,18,0.3)';
+            ctx.fillRect(0, TOP_UI - 4, W, 1);
+            tex.refresh();
+        }
+        this.add.image(W / 2, TOP_UI / 2, topKey).setDepth(8);
+
+        // МАТЧ ИНТЕРВЬЮ label via CanvasTexture
+        const lblKey = '_uiLabel';
+        if (!this.textures.exists(lblKey)) {
+            const lw = 104, lh = 52;
+            const tex = this.textures.createCanvas(lblKey, lw, lh);
+            const ctx = tex.getContext();
+            const r = 8;
+            // Rounded rect path
+            ctx.beginPath();
+            ctx.moveTo(r, 0); ctx.lineTo(lw - r, 0);
+            ctx.quadraticCurveTo(lw, 0, lw, r);
+            ctx.lineTo(lw, lh - r);
+            ctx.quadraticCurveTo(lw, lh, lw - r, lh);
+            ctx.lineTo(r, lh);
+            ctx.quadraticCurveTo(0, lh, 0, lh - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            // Gradient fill
+            const grad = ctx.createLinearGradient(0, 0, 0, lh);
+            grad.addColorStop(0, '#ef5350');
+            grad.addColorStop(1, '#b71c1c');
+            ctx.fillStyle = grad;
+            ctx.fill();
+            // Inner glow
+            ctx.save();
+            ctx.clip();
+            const hlGrad = ctx.createLinearGradient(0, 0, 0, lh * 0.4);
+            hlGrad.addColorStop(0, 'rgba(255,255,255,0.2)');
+            hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = hlGrad;
+            ctx.fillRect(0, 0, lw, lh * 0.4);
+            ctx.restore();
+            // Border
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(r, 0); ctx.lineTo(lw - r, 0);
+            ctx.quadraticCurveTo(lw, 0, lw, r);
+            ctx.lineTo(lw, lh - r);
+            ctx.quadraticCurveTo(lw, lh, lw - r, lh);
+            ctx.lineTo(r, lh);
+            ctx.quadraticCurveTo(0, lh, 0, lh - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            ctx.stroke();
+            tex.refresh();
+        }
+        this.add.image(8 + 52, 6 + 26, lblKey).setDepth(9);
+
+        this.add.text(60, 18, 'МАТЧ', {
             fontFamily: '"Press Start 2P", monospace', fontSize: 12, color: '#ffffff',
         }).setOrigin(0.5).setDepth(9);
-        this.add.text(58, 38, 'ИНТЕРВЬЮ', {
+        this.add.text(60, 38, 'ИНТЕРВЬЮ', {
             fontFamily: '"Press Start 2P", monospace', fontSize: 8, color: '#ffcccc',
         }).setOrigin(0.5).setDepth(9);
 
-        // Score
+        // Score with glow effect
         this.scoreText = this.add.text(W / 2, 14, '0', {
             fontFamily: '"Press Start 2P", monospace', fontSize: 30, color: '#ffffff',
+            stroke: '#f39c12', strokeThickness: 1,
         }).setOrigin(0.5, 0).setDepth(9);
         this.add.text(W / 2, 50, 'взято', {
             fontFamily: '"Press Start 2P", monospace', fontSize: 8, color: '#ffdc64',
@@ -712,16 +981,61 @@ export class Game extends Scene {
     }
 
     createBottomUI() {
-        const botBg = this.add.graphics().setDepth(8);
-        botBg.fillStyle(0x16213e, 0.95);
-        botBg.fillRect(0, H - BOTTOM_UI, W, BOTTOM_UI);
+        // Gradient bottom panel via CanvasTexture
+        const botKey = '_uiBot';
+        if (!this.textures.exists(botKey)) {
+            const tex = this.textures.createCanvas(botKey, W, BOTTOM_UI);
+            const ctx = tex.getContext();
+            const grad = ctx.createLinearGradient(0, 0, 0, BOTTOM_UI);
+            grad.addColorStop(0, '#1c2a4a');
+            grad.addColorStop(0.3, '#16213e');
+            grad.addColorStop(1, '#0c1528');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, BOTTOM_UI);
+            // Top accent
+            ctx.save();
+            ctx.shadowColor = 'rgba(243,156,18,0.4)';
+            ctx.shadowBlur = 4;
+            ctx.fillStyle = 'rgba(243,156,18,0.35)';
+            ctx.fillRect(0, 0, W, 1);
+            ctx.restore();
+            // Noise
+            for (let i = 0; i < 200; i++) {
+                ctx.fillStyle = `rgba(255,255,255,${0.01 + Math.random() * 0.02})`;
+                ctx.fillRect(Math.random() * W, Math.random() * BOTTOM_UI, 1, 1);
+            }
+            tex.refresh();
+        }
+        this.add.image(W / 2, H - BOTTOM_UI + BOTTOM_UI / 2, botKey).setDepth(8);
 
-        // Cable bar
-        const cablePanel = this.add.graphics().setDepth(9);
-        cablePanel.fillStyle(0x16213e, 0.9);
-        cablePanel.fillRoundedRect(8, H - BOTTOM_UI + 4, 162, 38, 6);
-        cablePanel.lineStyle(1.5, 0xffc864, 0.3);
-        cablePanel.strokeRoundedRect(8, H - BOTTOM_UI + 4, 162, 38, 6);
+        // Cable panel via CanvasTexture
+        const cblKey = '_uiCable';
+        if (!this.textures.exists(cblKey)) {
+            const pw = 166, ph = 40;
+            const tex = this.textures.createCanvas(cblKey, pw, ph);
+            const ctx = tex.getContext();
+            const r = 8;
+            ctx.beginPath();
+            ctx.moveTo(r, 0); ctx.lineTo(pw - r, 0);
+            ctx.quadraticCurveTo(pw, 0, pw, r);
+            ctx.lineTo(pw, ph - r);
+            ctx.quadraticCurveTo(pw, ph, pw - r, ph);
+            ctx.lineTo(r, ph);
+            ctx.quadraticCurveTo(0, ph, 0, ph - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, 0, 0, ph);
+            grad.addColorStop(0, 'rgba(22,33,62,0.95)');
+            grad.addColorStop(1, 'rgba(12,21,40,0.95)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,200,100,0.25)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            tex.refresh();
+        }
+        this.add.image(8 + 83, H - BOTTOM_UI + 4 + 20, cblKey).setDepth(9);
 
         this.add.text(16, H - BOTTOM_UI + 12, '🔌 кабель:', {
             fontFamily: '"Press Start 2P", monospace', fontSize: 9, color: '#cccccc',
@@ -733,21 +1047,27 @@ export class Game extends Scene {
 
         this.cableBarFill = this.add.graphics().setDepth(9);
 
-        // Timer box (center-right bottom)
-        const timerBoxW = 80;
-        const timerBoxH = 36;
-        const timerBoxX = W / 2 - timerBoxW / 2;
-        const timerBoxY = H - BOTTOM_UI + 9;
+        // Timer box via CanvasTexture (redrawn when color changes)
+        this._timerBoxW = 84;
+        this._timerBoxH = 40;
+        this._timerBoxX = W / 2 - this._timerBoxW / 2;
+        this._timerBoxY = H - BOTTOM_UI + 7;
+        this._timerColor = 0x2ecc71;
 
-        this.timerBox = this.add.graphics().setDepth(9);
-        this.timerBox.fillStyle(0x000000, 0.6);
-        this.timerBox.fillRoundedRect(timerBoxX, timerBoxY, timerBoxW, timerBoxH, 8);
-        this.timerBox.lineStyle(2.5, 0x2ecc71);
-        this.timerBox.strokeRoundedRect(timerBoxX, timerBoxY, timerBoxW, timerBoxH, 8);
+        this._makeTimerBox(0x2ecc71);
+        this.timerBoxImg = this.add.image(
+            this._timerBoxX + this._timerBoxW / 2,
+            this._timerBoxY + this._timerBoxH / 2,
+            '_uiTimer'
+        ).setDepth(9);
 
-        this.timerText = this.add.text(timerBoxX + timerBoxW / 2, timerBoxY + timerBoxH / 2, '5:00', {
-            fontFamily: '"Press Start 2P", monospace', fontSize: 18, color: '#2ecc71',
-        }).setOrigin(0.5).setDepth(10);
+        this.timerText = this.add.text(
+            this._timerBoxX + this._timerBoxW / 2,
+            this._timerBoxY + this._timerBoxH / 2,
+            '5:00', {
+                fontFamily: '"Press Start 2P", monospace', fontSize: 18, color: '#2ecc71',
+            }
+        ).setOrigin(0.5).setDepth(10);
 
         // Smoke banner (hidden initially)
         this.smokeBannerGfx = this.add.graphics().setDepth(10);
@@ -755,6 +1075,73 @@ export class Game extends Scene {
             fontFamily: '"Press Start 2P", monospace', fontSize: 10, color: '#e8e8d0',
         }).setOrigin(0.5).setDepth(11).setVisible(false);
         this.smokeBarGfx = this.add.graphics().setDepth(11);
+    }
+
+    _makeTimerBox(borderColor) {
+        const key = '_uiTimer';
+        if (this.textures.exists(key)) this.textures.remove(key);
+        const tw = this._timerBoxW, th = this._timerBoxH, r = 10;
+        const pad = 6;
+        const tex = this.textures.createCanvas(key, tw + pad * 2, th + pad * 2);
+        const ctx = tex.getContext();
+        const ox = pad, oy = pad;
+        const bR = (borderColor >> 16) & 0xff, bG = (borderColor >> 8) & 0xff, bB = borderColor & 0xff;
+
+        // Shadow
+        ctx.save();
+        ctx.shadowColor = `rgba(${bR},${bG},${bB},0.4)`;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.moveTo(ox + r, oy); ctx.lineTo(ox + tw - r, oy);
+        ctx.quadraticCurveTo(ox + tw, oy, ox + tw, oy + r);
+        ctx.lineTo(ox + tw, oy + th - r);
+        ctx.quadraticCurveTo(ox + tw, oy + th, ox + tw - r, oy + th);
+        ctx.lineTo(ox + r, oy + th);
+        ctx.quadraticCurveTo(ox, oy + th, ox, oy + th - r);
+        ctx.lineTo(ox, oy + r);
+        ctx.quadraticCurveTo(ox, oy, ox + r, oy);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fill();
+        ctx.restore();
+
+        // Gradient fill
+        const grad = ctx.createLinearGradient(ox, oy, ox, oy + th);
+        grad.addColorStop(0, 'rgba(20,20,30,0.9)');
+        grad.addColorStop(1, 'rgba(5,5,15,0.95)');
+        ctx.beginPath();
+        ctx.moveTo(ox + r, oy); ctx.lineTo(ox + tw - r, oy);
+        ctx.quadraticCurveTo(ox + tw, oy, ox + tw, oy + r);
+        ctx.lineTo(ox + tw, oy + th - r);
+        ctx.quadraticCurveTo(ox + tw, oy + th, ox + tw - r, oy + th);
+        ctx.lineTo(ox + r, oy + th);
+        ctx.quadraticCurveTo(ox, oy + th, ox, oy + th - r);
+        ctx.lineTo(ox, oy + r);
+        ctx.quadraticCurveTo(ox, oy, ox + r, oy);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Glowing border
+        ctx.save();
+        ctx.shadowColor = `rgba(${bR},${bG},${bB},0.5)`;
+        ctx.shadowBlur = 5;
+        ctx.strokeStyle = `rgb(${bR},${bG},${bB})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(ox + r, oy); ctx.lineTo(ox + tw - r, oy);
+        ctx.quadraticCurveTo(ox + tw, oy, ox + tw, oy + r);
+        ctx.lineTo(ox + tw, oy + th - r);
+        ctx.quadraticCurveTo(ox + tw, oy + th, ox + tw - r, oy + th);
+        ctx.lineTo(ox + r, oy + th);
+        ctx.quadraticCurveTo(ox, oy + th, ox, oy + th - r);
+        ctx.lineTo(ox, oy + r);
+        ctx.quadraticCurveTo(ox, oy, ox + r, oy);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        tex.refresh();
     }
 
     updateUI() {
@@ -774,7 +1161,7 @@ export class Game extends Scene {
     }
 
     updateTimerDisplay() {
-        // Only update once per second (60 frames) — was redrawing graphics every frame
+        // Only update once per second (60 frames)
         if (this.gameTimer % 60 !== 0 && this.gameTimer > 1) return;
 
         const secLeft = Math.max(0, GAME_DURATION - Math.floor(this.gameTimer / 60));
@@ -783,33 +1170,39 @@ export class Game extends Scene {
         this.timerText.setText(`${mm}:${ss < 10 ? '0' : ''}${ss}`);
 
         const borderColor = secLeft < 60 ? 0xe74c3c : secLeft < 120 ? 0xf39c12 : 0x2ecc71;
-        this.timerText.setColor(secLeft < 60 ? '#e74c3c' : secLeft < 120 ? '#f39c12' : '#2ecc71');
+        const textCss = secLeft < 60 ? '#e74c3c' : secLeft < 120 ? '#f39c12' : '#2ecc71';
+        this.timerText.setColor(textCss);
 
-        const timerBoxW = 80, timerBoxH = 36;
-        const timerBoxX = W / 2 - timerBoxW / 2, timerBoxY = H - BOTTOM_UI + 9;
-        this.timerBox.clear();
-        this.timerBox.fillStyle(0x000000, 0.6);
-        this.timerBox.fillRoundedRect(timerBoxX, timerBoxY, timerBoxW, timerBoxH, 8);
-        this.timerBox.lineStyle(2.5, borderColor);
-        this.timerBox.strokeRoundedRect(timerBoxX, timerBoxY, timerBoxW, timerBoxH, 8);
+        // Rebuild timer box texture only when color changes
+        if (borderColor !== this._timerColor) {
+            this._timerColor = borderColor;
+            this._makeTimerBox(borderColor);
+            this.timerBoxImg.setTexture('_uiTimer');
+        }
     }
 
     updateSmokeBanner() {
         if (this.gst === 'smoke') {
-            // Only redraw progress bar every 4th frame
             if (this.frames % 4 !== 0) return;
             this.smokeBannerText.setVisible(true);
+
+            // Banner background — subtle gradient panel
             this.smokeBannerGfx.clear();
-            this.smokeBannerGfx.fillStyle(0x16213e, 0.92);
+            this.smokeBannerGfx.fillStyle(0x0c1528, 0.92);
             this.smokeBannerGfx.fillRoundedRect(W / 2 - 114, H - BOTTOM_UI - 44, 228, 42, 8);
+            this.smokeBannerGfx.fillStyle(0x16213e, 0.6);
+            this.smokeBannerGfx.fillRoundedRect(W / 2 - 114, H - BOTTOM_UI - 44, 228, 20, 8);
             this.smokeBannerGfx.lineStyle(1.5, 0xffc864, 0.3);
             this.smokeBannerGfx.strokeRoundedRect(W / 2 - 114, H - BOTTOM_UI - 44, 228, 42, 8);
 
+            // Progress bar with color transition
+            const progress = this.smokeT / 200;
             this.smokeBarGfx.clear();
             this.smokeBarGfx.fillStyle(0x1a1a2e);
             this.smokeBarGfx.fillRoundedRect(W / 2 - 90, H - BOTTOM_UI - 16, 180, 8, 4);
-            this.smokeBarGfx.fillStyle(0xaaaaaa);
-            this.smokeBarGfx.fillRoundedRect(W / 2 - 90, H - BOTTOM_UI - 16, Math.round(180 * (this.smokeT / 200)), 8, 4);
+            const barColor = progress > 0.5 ? 0xaaaaaa : progress > 0.25 ? 0xd4a044 : 0xcc6644;
+            this.smokeBarGfx.fillStyle(barColor);
+            this.smokeBarGfx.fillRoundedRect(W / 2 - 90, H - BOTTOM_UI - 16, Math.max(4, Math.round(180 * progress)), 8, 4);
         } else if (this.smokeBannerText.visible) {
             this.smokeBannerText.setVisible(false);
             this.smokeBannerGfx.clear();
@@ -855,6 +1248,13 @@ export class Game extends Scene {
                 timeup: true,
             });
         });
+    }
+
+    updateTicker() {
+        if (!this.tickerText) return;
+        this._tickerOffset -= 0.8;
+        if (this._tickerOffset < -this._tickerFullW) this._tickerOffset = F.w;
+        this.tickerText.x = F.x + this._tickerOffset;
     }
 
     checkWin() {
@@ -935,6 +1335,7 @@ export class Game extends Scene {
         this.updateBubbles();
         this.updateTimerDisplay();
         this.updateSmokeBanner();
+        this.updateTicker();
         this.checkWin();
     }
 }

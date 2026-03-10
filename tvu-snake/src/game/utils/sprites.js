@@ -1,9 +1,8 @@
 /**
- * Generate character sprites using Phaser Graphics
- * HD cartoon style with proper bounding boxes
+ * Generate character sprites using CanvasTexture (native Canvas 2D API)
+ * HD cartoon style — gradients, shadows, bezier curves
+ * All textures are 2x resolution, displayed at 0.5x scale for crisp rendering
  */
-
-const OL = 0x1a1a2e; // outline color
 
 // Skin/hair palettes
 export const SKINS = [0xf2c496, 0xe8a87c, 0xd4845a, 0xbe6a38, 0x8B5A2B, 0xf5deb3];
@@ -18,15 +17,20 @@ export const TEAM_COMBOS = [
     { a: { k: 0x117a65, kd: 0x0e6655, t: '#fff', s: 0x0a4d3e }, b: { k: 0xe59866, kd: 0xca7c3a, t: '#111', s: 0xc47a3a } },
 ];
 
-// Helper: darken a color by factor
+// --- Color helpers ---
+function hex(c) {
+    return '#' + (c & 0xffffff).toString(16).padStart(6, '0');
+}
+function hexA(c, a) {
+    const r = (c >> 16) & 0xff, g = (c >> 8) & 0xff, b = c & 0xff;
+    return `rgba(${r},${g},${b},${a})`;
+}
 function darken(color, factor) {
     const r = Math.floor(((color >> 16) & 0xff) * factor);
     const g = Math.floor(((color >> 8) & 0xff) * factor);
     const b = Math.floor((color & 0xff) * factor);
     return (r << 16) | (g << 8) | b;
 }
-
-// Helper: lighten a color
 function lighten(color, factor) {
     const r = Math.min(255, Math.floor(((color >> 16) & 0xff) * factor));
     const g = Math.min(255, Math.floor(((color >> 8) & 0xff) * factor));
@@ -34,1188 +38,1340 @@ function lighten(color, factor) {
     return (r << 16) | (g << 8) | b;
 }
 
-/**
- * Draw player (cartoon footballer) — texture 48x110
- * All coords shifted +42 Y so head fits; cx=24
- */
-function drawPlayer(g, kitColor, kitDark, sockColor, skinColor, hairColor) {
-    const cx = 24;
-    const Y = 42; // Y offset to keep head in bounds
-
-    // === Drop shadow ===
-    g.fillStyle(0x000000, 0.18);
-    g.fillEllipse(cx, Y + 64, 28, 8);
-
-    // === Boots ===
-    // Boot shadow
-    g.fillStyle(0x000000, 0.25);
-    g.fillRoundedRect(cx - 10, Y + 57, 10, 7, 3);
-    g.fillRoundedRect(cx, Y + 57, 10, 7, 3);
-    // Boot body
-    g.fillStyle(0x1a1a1a);
-    g.fillRoundedRect(cx - 10, Y + 55, 10, 7, 3);
-    g.fillRoundedRect(cx, Y + 55, 10, 7, 3);
-    // Boot highlight
-    g.fillStyle(0x333333, 0.5);
-    g.fillRoundedRect(cx - 9, Y + 55, 4, 3, 1);
-    g.fillRoundedRect(cx + 1, Y + 55, 4, 3, 1);
-    // Shoe laces — V pattern on boot tops
-    g.lineStyle(0.7, 0x555555, 0.7);
-    g.lineBetween(cx - 8, Y + 55, cx - 5, Y + 57);
-    g.lineBetween(cx - 5, Y + 57, cx - 8, Y + 59);
-    g.lineBetween(cx + 2, Y + 55, cx + 5, Y + 57);
-    g.lineBetween(cx + 5, Y + 57, cx + 2, Y + 59);
-    // Studs
-    g.fillStyle(0x888888);
-    g.fillRect(cx - 8, Y + 61, 2, 2);
-    g.fillRect(cx - 4, Y + 61, 2, 2);
-    g.fillRect(cx + 2, Y + 61, 2, 2);
-    g.fillRect(cx + 6, Y + 61, 2, 2);
-
-    // === Socks ===
-    g.fillStyle(sockColor);
-    g.fillRoundedRect(cx - 9, Y + 43, 8, 14, 3);
-    g.fillRoundedRect(cx + 1, Y + 43, 8, 14, 3);
-    // Sock stripe
-    g.fillStyle(0xffffff, 0.25);
-    g.fillRect(cx - 8, Y + 47, 6, 2);
-    g.fillRect(cx + 2, Y + 47, 6, 2);
-    // Shin guard bulge
-    g.fillStyle(sockColor);
-    g.fillRoundedRect(cx - 8, Y + 43, 6, 8, 2);
-    g.fillRoundedRect(cx + 2, Y + 43, 6, 8, 2);
-    g.fillStyle(lighten(sockColor, 1.15), 0.35);
-    g.fillRoundedRect(cx - 7, Y + 44, 3, 6, 1);
-    g.fillRoundedRect(cx + 3, Y + 44, 3, 6, 1);
-
-    // === Shorts ===
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx - 11, Y + 30, 22, 16, 4);
-    // Shorts stripe
-    g.fillStyle(kitDark);
-    g.fillRoundedRect(cx - 11, Y + 30, 22, 6, 3);
-    // Shorts highlight
-    g.fillStyle(0xffffff, 0.08);
-    g.fillRoundedRect(cx - 9, Y + 31, 8, 4, 2);
-    // Shorts wrinkle/fold lines
-    g.lineStyle(0.8, 0x000000, 0.12);
-    g.lineBetween(cx - 1, Y + 32, cx - 3, Y + 44);
-    g.lineBetween(cx + 4, Y + 33, cx + 6, Y + 43);
-
-    // === Jersey ===
-    // Jersey shadow
-    g.fillStyle(darken(kitColor, 0.7), 0.3);
-    g.fillRoundedRect(cx - 12, Y + 11, 24, 22, 5);
-    // Jersey body — gradient simulation (4 horizontal bands, darker at bottom)
-    g.fillStyle(lighten(kitColor, 1.08), 0.95);
-    g.fillRoundedRect(cx - 12, Y + 9, 24, 6, { tl: 5, tr: 5, bl: 0, br: 0 });
-    g.fillStyle(kitColor);
-    g.fillRoundedRect(cx - 12, Y + 15, 24, 6, 0);
-    g.fillStyle(darken(kitColor, 0.92), 0.95);
-    g.fillRoundedRect(cx - 12, Y + 21, 24, 5, 0);
-    g.fillStyle(darken(kitColor, 0.82), 0.9);
-    g.fillRoundedRect(cx - 12, Y + 26, 24, 6, { tl: 0, tr: 0, bl: 5, br: 5 });
-    // Side panel
-    g.fillStyle(kitDark);
-    g.fillRoundedRect(cx - 12, Y + 9, 6, 23, 4);
-    // Jersey highlight (sheen)
-    g.fillStyle(lighten(kitColor, 1.25), 0.18);
-    g.fillRoundedRect(cx - 4, Y + 10, 8, 12, 3);
-    // Wrinkle/fold lines on jersey
-    g.lineStyle(0.8, darken(kitColor, 0.6), 0.15);
-    g.lineBetween(cx - 6, Y + 14, cx - 2, Y + 20);
-    g.lineBetween(cx + 3, Y + 12, cx + 6, Y + 18);
-    g.lineBetween(cx - 8, Y + 24, cx - 3, Y + 29);
-    g.lineBetween(cx + 2, Y + 25, cx + 7, Y + 30);
-    // Collar — V-neck style
-    g.fillStyle(0xffffff);
-    g.fillRoundedRect(cx - 5, Y + 7, 10, 5, 2);
-    g.fillStyle(kitDark);
-    // V-neck notch
-    g.fillTriangle(cx - 2, Y + 8, cx + 2, Y + 8, cx, Y + 12);
-    // Number circle on chest
-    g.fillStyle(0xffffff, 0.2);
-    g.fillCircle(cx, Y + 19, 6);
-
-    // === Arms ===
-    // Left arm (sleeve + skin)
-    g.fillStyle(kitColor);
-    g.fillRoundedRect(cx - 16, Y + 10, 7, 12, 3);
-    g.fillStyle(skinColor);
-    g.fillRoundedRect(cx - 15, Y + 20, 5, 8, 2);
-    // Left wristband
-    g.fillStyle(0xffffff);
-    g.fillRoundedRect(cx - 15, Y + 25, 5, 3, 1);
-    g.fillStyle(kitColor, 0.5);
-    g.fillRoundedRect(cx - 15, Y + 26, 5, 1, 0);
-    // Left finger detail
-    g.lineStyle(0.6, darken(skinColor, 0.7), 0.35);
-    g.lineBetween(cx - 14, Y + 27, cx - 14, Y + 28);
-    g.lineBetween(cx - 12, Y + 27, cx - 12, Y + 28);
-    // Right arm
-    g.fillStyle(kitColor);
-    g.fillRoundedRect(cx + 9, Y + 10, 7, 12, 3);
-    g.fillStyle(skinColor);
-    g.fillRoundedRect(cx + 10, Y + 20, 5, 8, 2);
-    // Right wristband
-    g.fillStyle(0xffffff);
-    g.fillRoundedRect(cx + 10, Y + 25, 5, 3, 1);
-    g.fillStyle(kitColor, 0.5);
-    g.fillRoundedRect(cx + 10, Y + 26, 5, 1, 0);
-    // Right finger detail
-    g.lineStyle(0.6, darken(skinColor, 0.7), 0.35);
-    g.lineBetween(cx + 12, Y + 27, cx + 12, Y + 28);
-    g.lineBetween(cx + 14, Y + 27, cx + 14, Y + 28);
-
-    // === Neck ===
-    g.fillStyle(skinColor);
-    g.fillRoundedRect(cx - 3, Y + 3, 6, 8, 2);
-    // Neck shadow
-    g.fillStyle(darken(skinColor, 0.85), 0.3);
-    g.fillRect(cx - 3, Y + 6, 6, 3);
-
-    // === Head ===
-    // Head outline
-    g.fillStyle(OL);
-    g.fillCircle(cx, Y - 8, 15);
-    // Head fill
-    g.fillStyle(skinColor);
-    g.fillCircle(cx, Y - 8, 14);
-    // Head highlight
-    g.fillStyle(lighten(skinColor, 1.12), 0.3);
-    g.fillCircle(cx - 3, Y - 12, 7);
-
-    // === Ears ===
-    g.fillStyle(darken(skinColor, 0.92));
-    g.fillCircle(cx - 14, Y - 7, 4);
-    g.fillCircle(cx + 14, Y - 7, 4);
-    g.fillStyle(skinColor);
-    g.fillCircle(cx - 13, Y - 7, 3);
-    g.fillCircle(cx + 13, Y - 7, 3);
-
-    // === Hair ===
-    // Base hair shape
-    g.fillStyle(hairColor);
-    g.beginPath();
-    g.arc(cx, Y - 16, 13, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair volume — second layer (slightly offset for volume)
-    g.fillStyle(darken(hairColor, 0.85), 0.4);
-    g.beginPath();
-    g.arc(cx + 2, Y - 17, 11, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair volume — top highlight layer
-    g.fillStyle(lighten(hairColor, 1.35), 0.25);
-    g.beginPath();
-    g.arc(cx - 2, Y - 19, 8, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Individual hair strand shapes
-    g.fillStyle(lighten(hairColor, 1.2), 0.15);
-    g.fillRoundedRect(cx - 8, Y - 28, 3, 8, 1);
-    g.fillRoundedRect(cx - 3, Y - 30, 3, 10, 1);
-    g.fillRoundedRect(cx + 2, Y - 29, 3, 9, 1);
-    g.fillRoundedRect(cx + 6, Y - 27, 3, 7, 1);
-    // Dark strand accents
-    g.fillStyle(darken(hairColor, 0.7), 0.12);
-    g.fillRoundedRect(cx - 6, Y - 26, 2, 6, 1);
-    g.fillRoundedRect(cx + 1, Y - 27, 2, 7, 1);
-    g.fillRoundedRect(cx + 5, Y - 25, 2, 5, 1);
-    // Sideburns
-    g.fillStyle(hairColor);
-    g.fillRoundedRect(cx - 15, Y - 16, 5, 10, 2);
-    g.fillRoundedRect(cx + 10, Y - 16, 5, 8, 2);
-    // Sideburn highlights
-    g.fillStyle(lighten(hairColor, 1.15), 0.2);
-    g.fillRoundedRect(cx - 14, Y - 14, 2, 6, 1);
-    g.fillRoundedRect(cx + 11, Y - 14, 2, 5, 1);
-
-    // === Chin definition ===
-    // Subtle shadow under head circle
-    g.fillStyle(darken(skinColor, 0.78), 0.2);
-    g.beginPath();
-    g.arc(cx, Y + 2, 10, 0, Math.PI, false);
-    g.closePath();
-    g.fillPath();
-
-    // === Eyebrows ===
-    g.fillStyle(darken(hairColor, 0.7));
-    g.fillRoundedRect(cx - 8, Y - 15, 6, 2, 1);
-    g.fillRoundedRect(cx + 2, Y - 15, 6, 2, 1);
-
-    // === Eyes ===
-    // White
-    g.fillStyle(0xffffff);
-    g.fillEllipse(cx - 5, Y - 10, 7, 6);
-    g.fillEllipse(cx + 5, Y - 10, 7, 6);
-    // Eyelids — thin dark arc above eyes
-    g.lineStyle(1, darken(skinColor, 0.55), 0.45);
-    g.beginPath();
-    g.arc(cx - 5, Y - 10, 3.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.beginPath();
-    g.arc(cx + 5, Y - 10, 3.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    // Iris
-    g.fillStyle(0x4a3520);
-    g.fillCircle(cx - 5, Y - 10, 2.2);
-    g.fillCircle(cx + 5, Y - 10, 2.2);
-    // Iris ring detail
-    g.lineStyle(0.5, 0x3a2510, 0.3);
-    g.strokeCircle(cx - 5, Y - 10, 2.2);
-    g.strokeCircle(cx + 5, Y - 10, 2.2);
-    // Pupil
-    g.fillStyle(0x111111);
-    g.fillCircle(cx - 5, Y - 10, 1.2);
-    g.fillCircle(cx + 5, Y - 10, 1.2);
-    // Eye shine
-    g.fillStyle(0xffffff, 0.9);
-    g.fillCircle(cx - 4, Y - 11, 1);
-    g.fillCircle(cx + 6, Y - 11, 1);
-
-    // === Nose ===
-    g.fillStyle(darken(skinColor, 0.88), 0.5);
-    g.fillCircle(cx, Y - 6, 2);
-    // Nose bridge highlight
-    g.fillStyle(lighten(skinColor, 1.1), 0.2);
-    g.fillCircle(cx - 0.5, Y - 7, 1);
-
-    // === Mouth ===
-    g.lineStyle(2, darken(skinColor, 0.6));
-    g.beginPath();
-    g.arc(cx, Y - 3, 4, 0.15, Math.PI - 0.15, false);
-    g.strokePath();
-
-    // === Outline strokes for body ===
-    g.lineStyle(1.5, OL, 0.3);
-    g.strokeRoundedRect(cx - 12, Y + 9, 24, 23, 5);
-    g.strokeRoundedRect(cx - 11, Y + 30, 22, 16, 4);
+// --- Canvas drawing helpers ---
+function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
 }
 
-/**
- * Draw camera operator — texture 72x106
- * Shifted +38 Y; cx=28
- */
-function drawOperator(g) {
-    const cx = 28;
-    const Y = 38;
+function ellipse(ctx, cx, cy, rx, ry) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.closePath();
+}
+
+function circle(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+}
+
+// Gradient-filled rounded rect
+function gradRect(ctx, x, y, w, h, r, topColor, botColor) {
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, hex(topColor));
+    grad.addColorStop(1, hex(botColor));
+    ctx.fillStyle = grad;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.fill();
+}
+
+// ========================
+// PLAYER (footballer) — 96 x 220 canvas (displayed at ~0.22 scale)
+// ========================
+function drawPlayer(ctx, kitColor, kitDark, sockColor, skinColor, hairColor) {
+    const cx = 48, Y = 84; // center X, Y offset
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+
+    // --- Drop shadow ---
+    ctx.fillStyle = hexA(0x000000, 0.15);
+    ellipse(ctx, cx, Y + 128, 28, 8);
+    ctx.fill();
+
+    // --- Boots ---
+    ctx.fillStyle = '#1a1a1a';
+    roundRect(ctx, cx - 20, Y + 110, 18, 14, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 110, 18, 14, 5);
+    ctx.fill();
+    // Boot highlight
+    const bootGrad = ctx.createLinearGradient(0, Y + 110, 0, Y + 124);
+    bootGrad.addColorStop(0, '#444');
+    bootGrad.addColorStop(1, '#111');
+    ctx.fillStyle = bootGrad;
+    roundRect(ctx, cx - 18, Y + 111, 8, 6, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y + 111, 8, 6, 2);
+    ctx.fill();
+    // Studs
+    ctx.fillStyle = '#999';
+    for (let i = 0; i < 3; i++) {
+        ctx.fillRect(cx - 16 + i * 6, Y + 123, 3, 3);
+        ctx.fillRect(cx + 4 + i * 6, Y + 123, 3, 3);
+    }
+
+    // --- Socks ---
+    const sockGrad = ctx.createLinearGradient(0, Y + 86, 0, Y + 112);
+    sockGrad.addColorStop(0, hex(lighten(sockColor, 1.15)));
+    sockGrad.addColorStop(1, hex(darken(sockColor, 0.8)));
+    ctx.fillStyle = sockGrad;
+    roundRect(ctx, cx - 18, Y + 86, 16, 28, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 86, 16, 28, 5);
+    ctx.fill();
+    // Sock stripe
+    ctx.fillStyle = hexA(0xffffff, 0.25);
+    ctx.fillRect(cx - 16, Y + 94, 12, 3);
+    ctx.fillRect(cx + 4, Y + 94, 12, 3);
+    // Shin guard highlight
+    ctx.fillStyle = hexA(lighten(sockColor, 1.3), 0.2);
+    roundRect(ctx, cx - 14, Y + 88, 6, 12, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 6, Y + 88, 6, 12, 2);
+    ctx.fill();
+
+    // --- Shorts ---
+    gradRect(ctx, cx - 22, Y + 60, 44, 30, 7, 0x222222, 0x111111);
+    // Shorts stripe
+    ctx.fillStyle = hex(kitDark);
+    roundRect(ctx, cx - 22, Y + 60, 44, 10, 5);
+    ctx.fill();
+    // Wrinkle lines
+    ctx.strokeStyle = hexA(0x000000, 0.1);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 2, Y + 64); ctx.lineTo(cx - 6, Y + 88);
+    ctx.moveTo(cx + 8, Y + 66); ctx.lineTo(cx + 12, Y + 86);
+    ctx.stroke();
+
+    // --- Jersey ---
+    const jerseyGrad = ctx.createLinearGradient(0, Y + 18, 0, Y + 64);
+    jerseyGrad.addColorStop(0, hex(lighten(kitColor, 1.15)));
+    jerseyGrad.addColorStop(0.4, hex(kitColor));
+    jerseyGrad.addColorStop(1, hex(darken(kitColor, 0.75)));
+    ctx.fillStyle = jerseyGrad;
+    roundRect(ctx, cx - 24, Y + 18, 48, 46, 8);
+    ctx.fill();
+
+    // Side panel
+    const sidePanelGrad = ctx.createLinearGradient(cx - 24, 0, cx - 12, 0);
+    sidePanelGrad.addColorStop(0, hex(darken(kitColor, 0.7)));
+    sidePanelGrad.addColorStop(1, hexA(kitDark, 0.3));
+    ctx.fillStyle = sidePanelGrad;
+    roundRect(ctx, cx - 24, Y + 18, 12, 46, 6);
+    ctx.fill();
+
+    // Jersey highlight/sheen
+    ctx.fillStyle = hexA(lighten(kitColor, 1.4), 0.15);
+    roundRect(ctx, cx - 6, Y + 22, 16, 24, 4);
+    ctx.fill();
+
+    // Collar — V-neck
+    ctx.fillStyle = '#ffffff';
+    roundRect(ctx, cx - 10, Y + 14, 20, 10, 4);
+    ctx.fill();
+    ctx.fillStyle = hex(kitDark);
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, Y + 16);
+    ctx.lineTo(cx + 4, Y + 16);
+    ctx.lineTo(cx, Y + 24);
+    ctx.closePath();
+    ctx.fill();
+
+    // Number circle
+    ctx.fillStyle = hexA(0xffffff, 0.18);
+    circle(ctx, cx, Y + 38, 11);
+    ctx.fill();
+
+    // Jersey wrinkle lines
+    ctx.strokeStyle = hexA(darken(kitColor, 0.5), 0.12);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, Y + 28); ctx.lineTo(cx - 4, Y + 40);
+    ctx.moveTo(cx + 6, Y + 24); ctx.lineTo(cx + 12, Y + 36);
+    ctx.stroke();
+
+    // Jersey outline
+    ctx.strokeStyle = hexA(0x1a1a2e, 0.2);
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx - 24, Y + 18, 48, 46, 8);
+    ctx.stroke();
+
+    // --- Arms ---
+    // Left sleeve
+    const sleeveGrad = ctx.createLinearGradient(cx - 32, 0, cx - 18, 0);
+    sleeveGrad.addColorStop(0, hex(darken(kitColor, 0.85)));
+    sleeveGrad.addColorStop(1, hex(kitColor));
+    ctx.fillStyle = sleeveGrad;
+    roundRect(ctx, cx - 32, Y + 20, 14, 22, 5);
+    ctx.fill();
+    // Right sleeve
+    const sleeveGrad2 = ctx.createLinearGradient(cx + 18, 0, cx + 32, 0);
+    sleeveGrad2.addColorStop(0, hex(kitColor));
+    sleeveGrad2.addColorStop(1, hex(darken(kitColor, 0.85)));
+    ctx.fillStyle = sleeveGrad2;
+    roundRect(ctx, cx + 18, Y + 20, 14, 22, 5);
+    ctx.fill();
+
+    // Skin arms
+    const skinGrad = ctx.createLinearGradient(0, Y + 40, 0, Y + 56);
+    skinGrad.addColorStop(0, hex(skinColor));
+    skinGrad.addColorStop(1, hex(darken(skinColor, 0.88)));
+    ctx.fillStyle = skinGrad;
+    roundRect(ctx, cx - 30, Y + 40, 10, 16, 4);
+    ctx.fill();
+    roundRect(ctx, cx + 20, Y + 40, 10, 16, 4);
+    ctx.fill();
+
+    // Wristbands
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, cx - 30, Y + 50, 10, 5, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 20, Y + 50, 10, 5, 2);
+    ctx.fill();
+
+    // --- Neck ---
+    ctx.fillStyle = hex(skinColor);
+    roundRect(ctx, cx - 6, Y + 6, 12, 16, 3);
+    ctx.fill();
+    ctx.fillStyle = hexA(darken(skinColor, 0.8), 0.25);
+    ctx.fillRect(cx - 6, Y + 12, 12, 6);
+
+    // --- Head ---
+    // Head shadow
+    ctx.save();
+    ctx.shadowColor = hexA(0x000000, 0.15);
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = hex(skinColor);
+    circle(ctx, cx, Y - 16, 28);
+    ctx.fill();
+    ctx.restore();
+
+    // Head highlight
+    const headGrad = ctx.createRadialGradient(cx - 6, Y - 24, 4, cx, Y - 16, 28);
+    headGrad.addColorStop(0, hexA(lighten(skinColor, 1.2), 0.35));
+    headGrad.addColorStop(1, hexA(skinColor, 0));
+    ctx.fillStyle = headGrad;
+    circle(ctx, cx, Y - 16, 28);
+    ctx.fill();
+
+    // --- Ears ---
+    ctx.fillStyle = hex(darken(skinColor, 0.92));
+    circle(ctx, cx - 28, Y - 14, 7);
+    ctx.fill();
+    circle(ctx, cx + 28, Y - 14, 7);
+    ctx.fill();
+    ctx.fillStyle = hex(skinColor);
+    circle(ctx, cx - 26, Y - 14, 5.5);
+    ctx.fill();
+    circle(ctx, cx + 26, Y - 14, 5.5);
+    ctx.fill();
+
+    // --- Hair ---
+    ctx.fillStyle = hex(hairColor);
+    ctx.beginPath();
+    ctx.arc(cx, Y - 32, 24, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Hair volume
+    ctx.fillStyle = hexA(darken(hairColor, 0.8), 0.4);
+    ctx.beginPath();
+    ctx.arc(cx + 4, Y - 34, 20, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Top highlight
+    ctx.fillStyle = hexA(lighten(hairColor, 1.4), 0.25);
+    ctx.beginPath();
+    ctx.arc(cx - 4, Y - 38, 14, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Hair strands
+    ctx.fillStyle = hexA(lighten(hairColor, 1.2), 0.15);
+    for (let i = -3; i <= 3; i++) {
+        roundRect(ctx, cx + i * 5 - 3, Y - 56 + Math.abs(i) * 2, 5, 14 - Math.abs(i), 2);
+        ctx.fill();
+    }
+    // Sideburns
+    ctx.fillStyle = hex(hairColor);
+    roundRect(ctx, cx - 30, Y - 32, 8, 18, 3);
+    ctx.fill();
+    roundRect(ctx, cx + 22, Y - 32, 8, 16, 3);
+    ctx.fill();
+
+    // --- Chin shadow ---
+    ctx.fillStyle = hexA(darken(skinColor, 0.75), 0.15);
+    ctx.beginPath();
+    ctx.arc(cx, Y + 4, 18, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.fill();
+
+    // --- Eyebrows ---
+    ctx.fillStyle = hex(darken(hairColor, 0.65));
+    roundRect(ctx, cx - 16, Y - 30, 12, 4, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y - 30, 12, 4, 2);
+    ctx.fill();
+
+    // --- Eyes ---
+    // White
+    ctx.fillStyle = '#fff';
+    ellipse(ctx, cx - 10, Y - 20, 7, 5.5);
+    ctx.fill();
+    ellipse(ctx, cx + 10, Y - 20, 7, 5.5);
+    ctx.fill();
+    // Iris
+    const irisGrad = ctx.createRadialGradient(cx - 10, Y - 20, 1, cx - 10, Y - 20, 4.5);
+    irisGrad.addColorStop(0, '#2a1a00');
+    irisGrad.addColorStop(0.7, '#4a3520');
+    irisGrad.addColorStop(1, '#3a2510');
+    ctx.fillStyle = irisGrad;
+    circle(ctx, cx - 10, Y - 20, 4.5);
+    ctx.fill();
+    circle(ctx, cx + 10, Y - 20, 4.5);
+    ctx.fill();
+    // Pupil
+    ctx.fillStyle = '#111';
+    circle(ctx, cx - 10, Y - 20, 2.2);
+    ctx.fill();
+    circle(ctx, cx + 10, Y - 20, 2.2);
+    ctx.fill();
+    // Eye shine
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    circle(ctx, cx - 8, Y - 22, 2);
+    ctx.fill();
+    circle(ctx, cx + 12, Y - 22, 2);
+    ctx.fill();
+    // Eyelids
+    ctx.strokeStyle = hexA(darken(skinColor, 0.5), 0.4);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(cx - 10, Y - 20, 7, Math.PI + 0.3, -0.3, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + 10, Y - 20, 7, Math.PI + 0.3, -0.3, false);
+    ctx.stroke();
+
+    // --- Nose ---
+    ctx.fillStyle = hexA(darken(skinColor, 0.85), 0.45);
+    circle(ctx, cx, Y - 12, 3.5);
+    ctx.fill();
+    ctx.fillStyle = hexA(lighten(skinColor, 1.15), 0.25);
+    circle(ctx, cx - 1, Y - 13.5, 1.5);
+    ctx.fill();
+
+    // --- Mouth ---
+    ctx.strokeStyle = hexA(darken(skinColor, 0.55), 0.8);
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, Y - 6, 7, 0.2, Math.PI - 0.2, false);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// ========================
+// OPERATOR (camera operator) — 144 x 212 canvas
+// ========================
+function drawOperator(ctx) {
+    const cx = 56, Y = 76;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
 
     // Drop shadow
-    g.fillStyle(0x000000, 0.18);
-    g.fillEllipse(cx, Y + 66, 30, 8);
+    ctx.fillStyle = hexA(0x000000, 0.15);
+    ellipse(ctx, cx, Y + 132, 30, 8);
+    ctx.fill();
 
-    // === Shoes ===
-    g.fillStyle(0x1a1a1a);
-    g.fillRoundedRect(cx - 12, Y + 58, 11, 7, 3);
-    g.fillRoundedRect(cx, Y + 58, 11, 7, 3);
-    g.fillStyle(0x333333, 0.4);
-    g.fillRoundedRect(cx - 11, Y + 58, 4, 3, 1);
-    g.fillRoundedRect(cx + 1, Y + 58, 4, 3, 1);
-    // Shoe laces — V pattern
-    g.lineStyle(0.7, 0x555555, 0.7);
-    g.lineBetween(cx - 9, Y + 58, cx - 6, Y + 60);
-    g.lineBetween(cx - 6, Y + 60, cx - 9, Y + 62);
-    g.lineBetween(cx + 2, Y + 58, cx + 5, Y + 60);
-    g.lineBetween(cx + 5, Y + 60, cx + 2, Y + 62);
+    // --- Shoes ---
+    ctx.fillStyle = '#1a1a1a';
+    roundRect(ctx, cx - 22, Y + 116, 20, 14, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 116, 20, 14, 5);
+    ctx.fill();
 
-    // === Legs (dark jeans) ===
-    g.fillStyle(0x1c3a5c);
-    g.fillRoundedRect(cx - 10, Y + 42, 9, 18, 3);
-    g.fillRoundedRect(cx + 1, Y + 42, 9, 18, 3);
-    // Jean seam
-    g.fillStyle(0x15305a, 0.5);
-    g.fillRect(cx - 6, Y + 43, 1, 16);
-    g.fillRect(cx + 5, Y + 43, 1, 16);
-    // Jean wrinkle at knees
-    g.lineStyle(0.8, 0x0d2040, 0.18);
-    g.lineBetween(cx - 9, Y + 48, cx - 4, Y + 50);
-    g.lineBetween(cx + 2, Y + 48, cx + 7, Y + 50);
+    // --- Legs (dark jeans) ---
+    const jeanGrad = ctx.createLinearGradient(0, Y + 84, 0, Y + 118);
+    jeanGrad.addColorStop(0, '#1e3a5e');
+    jeanGrad.addColorStop(1, '#122840');
+    ctx.fillStyle = jeanGrad;
+    roundRect(ctx, cx - 20, Y + 84, 18, 36, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 84, 18, 36, 5);
+    ctx.fill();
+    // Jean seams
+    ctx.strokeStyle = 'rgba(10,30,60,0.3)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, Y + 86); ctx.lineTo(cx - 12, Y + 118);
+    ctx.moveTo(cx + 10, Y + 86); ctx.lineTo(cx + 10, Y + 118);
+    ctx.stroke();
 
-    // === Body (dark blue jacket) ===
-    // Jacket gradient simulation (4 bands, darker at bottom)
-    g.fillStyle(lighten(0x1c4a6e, 1.1), 0.95);
-    g.fillRoundedRect(cx - 14, Y + 12, 28, 8, { tl: 5, tr: 5, bl: 0, br: 0 });
-    g.fillStyle(0x1c4a6e);
-    g.fillRoundedRect(cx - 14, Y + 20, 28, 8, 0);
-    g.fillStyle(darken(0x1c4a6e, 0.9), 0.95);
-    g.fillRoundedRect(cx - 14, Y + 28, 28, 8, 0);
-    g.fillStyle(darken(0x1c4a6e, 0.8), 0.9);
-    g.fillRoundedRect(cx - 14, Y + 36, 28, 8, { tl: 0, tr: 0, bl: 5, br: 5 });
+    // --- Body (dark blue jacket) ---
+    const jacketGrad = ctx.createLinearGradient(0, Y + 24, 0, Y + 88);
+    jacketGrad.addColorStop(0, '#2a6090');
+    jacketGrad.addColorStop(0.5, '#1c4a6e');
+    jacketGrad.addColorStop(1, '#0f2e4a');
+    ctx.fillStyle = jacketGrad;
+    roundRect(ctx, cx - 28, Y + 24, 56, 64, 8);
+    ctx.fill();
+
     // Jacket highlight
-    g.fillStyle(0x2a6090, 0.35);
-    g.fillRoundedRect(cx - 13, Y + 13, 8, 30, 4);
-    // Wrinkle/fold lines on jacket
-    g.lineStyle(0.8, 0x0d2a44, 0.15);
-    g.lineBetween(cx - 8, Y + 18, cx - 5, Y + 26);
-    g.lineBetween(cx + 5, Y + 16, cx + 8, Y + 24);
-    g.lineBetween(cx - 10, Y + 30, cx - 6, Y + 38);
-    // Zipper line
-    g.fillStyle(0x888888, 0.5);
-    g.fillRect(cx - 1, Y + 14, 2, 28);
-    // Zipper teeth detail
-    g.lineStyle(0.5, 0xaaaaaa, 0.3);
-    for (let zy = Y + 16; zy < Y + 40; zy += 3) {
-        g.lineBetween(cx - 1, zy, cx + 1, zy);
-    }
-    // Pockets
-    g.fillStyle(0x154060);
-    g.fillRoundedRect(cx - 12, Y + 30, 10, 8, 2);
-    g.fillRoundedRect(cx + 2, Y + 30, 10, 8, 2);
-    g.lineStyle(1, 0x1a3550, 0.5);
-    g.strokeRoundedRect(cx - 12, Y + 30, 10, 8, 2);
-    g.strokeRoundedRect(cx + 2, Y + 30, 10, 8, 2);
+    ctx.fillStyle = hexA(0x3a80b0, 0.2);
+    roundRect(ctx, cx - 26, Y + 26, 16, 58, 5);
+    ctx.fill();
 
-    // === Press vest (safety-style over jacket) ===
-    g.fillStyle(0xcccc00, 0.2);
-    g.fillRoundedRect(cx - 13, Y + 13, 26, 28, 4);
-    // Reflective stripes on vest
-    g.fillStyle(0xdddd22, 0.3);
-    g.fillRect(cx - 12, Y + 22, 24, 2);
-    g.fillRect(cx - 12, Y + 34, 24, 2);
-    // "PRESS" label area on vest back
-    g.fillStyle(0xffffff, 0.15);
-    g.fillRoundedRect(cx - 8, Y + 25, 16, 6, 2);
+    // Zipper
+    ctx.fillStyle = 'rgba(150,150,150,0.4)';
+    ctx.fillRect(cx - 2, Y + 28, 4, 56);
+    ctx.strokeStyle = 'rgba(200,200,200,0.2)';
+    ctx.lineWidth = 0.8;
+    for (let zy = Y + 32; zy < Y + 82; zy += 5) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, zy); ctx.lineTo(cx + 2, zy);
+        ctx.stroke();
+    }
+
+    // Pockets
+    ctx.fillStyle = '#154060';
+    roundRect(ctx, cx - 24, Y + 60, 18, 14, 3);
+    ctx.fill();
+    roundRect(ctx, cx + 6, Y + 60, 18, 14, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(26,53,80,0.4)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, cx - 24, Y + 60, 18, 14, 3);
+    ctx.stroke();
+    roundRect(ctx, cx + 6, Y + 60, 18, 14, 3);
+    ctx.stroke();
+
+    // --- Press vest (over jacket) ---
+    ctx.fillStyle = hexA(0xcccc00, 0.18);
+    roundRect(ctx, cx - 26, Y + 26, 52, 56, 6);
+    ctx.fill();
+    // Reflective stripes
+    ctx.fillStyle = hexA(0xdddd22, 0.28);
+    ctx.fillRect(cx - 24, Y + 44, 48, 4);
+    ctx.fillRect(cx - 24, Y + 68, 48, 4);
+    // PRESS label area
+    ctx.fillStyle = hexA(0xffffff, 0.12);
+    roundRect(ctx, cx - 16, Y + 50, 32, 10, 3);
+    ctx.fill();
 
     // Collar
-    g.fillStyle(0xf0f0f0);
-    g.fillRoundedRect(cx - 6, Y + 11, 12, 7, 3);
+    ctx.fillStyle = '#f0f0f0';
+    roundRect(ctx, cx - 12, Y + 22, 24, 12, 5);
+    ctx.fill();
 
-    // === Neck ===
-    g.fillStyle(0xf5c97a);
-    g.fillRoundedRect(cx - 3, Y + 5, 6, 8, 2);
+    // --- Neck ---
+    ctx.fillStyle = '#f5c97a';
+    roundRect(ctx, cx - 6, Y + 10, 12, 16, 3);
+    ctx.fill();
 
-    // === Head ===
-    g.fillStyle(OL);
-    g.fillCircle(cx, Y - 4, 15);
-    g.fillStyle(0xf5c97a);
-    g.fillCircle(cx, Y - 4, 14);
-    g.fillStyle(0xfce0a0, 0.25);
-    g.fillCircle(cx - 3, Y - 8, 7);
+    // --- Head ---
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = '#f5c97a';
+    circle(ctx, cx, Y - 8, 28);
+    ctx.fill();
+    ctx.restore();
+
+    // Head highlight
+    const headGrad = ctx.createRadialGradient(cx - 6, Y - 18, 4, cx, Y - 8, 28);
+    headGrad.addColorStop(0, 'rgba(252,224,160,0.3)');
+    headGrad.addColorStop(1, 'rgba(245,201,122,0)');
+    ctx.fillStyle = headGrad;
+    circle(ctx, cx, Y - 8, 28);
+    ctx.fill();
 
     // Ears
-    g.fillStyle(0xe8b860);
-    g.fillCircle(cx - 14, Y - 3, 4);
-    g.fillCircle(cx + 14, Y - 3, 4);
-    g.fillStyle(0xf5c97a);
-    g.fillCircle(cx - 13, Y - 3, 3);
-    g.fillCircle(cx + 13, Y - 3, 3);
+    ctx.fillStyle = '#e8b860';
+    circle(ctx, cx - 28, Y - 6, 7);
+    ctx.fill();
+    circle(ctx, cx + 28, Y - 6, 7);
+    ctx.fill();
+    ctx.fillStyle = '#f5c97a';
+    circle(ctx, cx - 26, Y - 6, 5.5);
+    ctx.fill();
+    circle(ctx, cx + 26, Y - 6, 5.5);
+    ctx.fill();
 
-    // === Headphones ===
-    g.lineStyle(3, 0x333333);
-    g.beginPath();
-    g.arc(cx, Y - 14, 15, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
+    // --- Headphones ---
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(cx, Y - 28, 28, Math.PI + 0.3, -0.3, false);
+    ctx.stroke();
     // Ear cups
-    g.fillStyle(0x222222);
-    g.fillRoundedRect(cx - 18, Y - 8, 6, 10, 3);
-    g.fillRoundedRect(cx + 12, Y - 8, 6, 10, 3);
-    g.fillStyle(0x444444, 0.5);
-    g.fillRoundedRect(cx - 17, Y - 7, 3, 6, 1);
-    g.fillRoundedRect(cx + 13, Y - 7, 3, 6, 1);
+    const cupGrad = ctx.createLinearGradient(0, Y - 16, 0, Y + 4);
+    cupGrad.addColorStop(0, '#444');
+    cupGrad.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = cupGrad;
+    roundRect(ctx, cx - 36, Y - 16, 12, 20, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 24, Y - 16, 12, 20, 5);
+    ctx.fill();
+    // Cup highlights
+    ctx.fillStyle = 'rgba(100,100,100,0.3)';
+    roundRect(ctx, cx - 34, Y - 14, 5, 12, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 26, Y - 14, 5, 12, 2);
+    ctx.fill();
 
-    // === Hair ===
-    // Base hair
-    g.fillStyle(0x2a1a00);
-    g.beginPath();
-    g.arc(cx, Y - 13, 12, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair volume layer
-    g.fillStyle(0x1a1000, 0.4);
-    g.beginPath();
-    g.arc(cx + 2, Y - 14, 10, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair highlight
-    g.fillStyle(0x3a2a10, 0.3);
-    g.beginPath();
-    g.arc(cx - 2, Y - 16, 7, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair strand shapes
-    g.fillStyle(0x3a2a10, 0.15);
-    g.fillRoundedRect(cx - 7, Y - 24, 3, 7, 1);
-    g.fillRoundedRect(cx - 2, Y - 25, 3, 8, 1);
-    g.fillRoundedRect(cx + 3, Y - 24, 3, 7, 1);
-    // Dark strand accents
-    g.fillStyle(0x150a00, 0.12);
-    g.fillRoundedRect(cx - 4, Y - 22, 2, 5, 1);
-    g.fillRoundedRect(cx + 1, Y - 23, 2, 6, 1);
+    // --- Hair ---
+    ctx.fillStyle = '#2a1a00';
+    ctx.beginPath();
+    ctx.arc(cx, Y - 26, 22, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(58,42,16,0.3)';
+    ctx.beginPath();
+    ctx.arc(cx - 4, Y - 32, 14, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
 
-    // === Chin definition ===
-    g.fillStyle(darken(0xf5c97a, 0.78), 0.2);
-    g.beginPath();
-    g.arc(cx, Y + 4, 9, 0, Math.PI, false);
-    g.closePath();
-    g.fillPath();
-
-    // === Eyes ===
-    g.fillStyle(0xffffff);
-    g.fillEllipse(cx - 5, Y - 6, 6, 5);
-    g.fillEllipse(cx + 5, Y - 6, 6, 5);
-    // Eyelids
-    g.lineStyle(1, 0x8a6030, 0.45);
-    g.beginPath();
-    g.arc(cx - 5, Y - 6, 3.2, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.beginPath();
-    g.arc(cx + 5, Y - 6, 3.2, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.fillStyle(0x333333);
-    g.fillCircle(cx - 5, Y - 6, 1.8);
-    g.fillCircle(cx + 5, Y - 6, 1.8);
-    // Iris ring
-    g.lineStyle(0.5, 0x222222, 0.3);
-    g.strokeCircle(cx - 5, Y - 6, 1.8);
-    g.strokeCircle(cx + 5, Y - 6, 1.8);
-    g.fillStyle(0xffffff, 0.9);
-    g.fillCircle(cx - 4, Y - 7, 0.8);
-    g.fillCircle(cx + 6, Y - 7, 0.8);
+    // --- Eyes ---
+    ctx.fillStyle = '#fff';
+    ellipse(ctx, cx - 10, Y - 12, 6, 5);
+    ctx.fill();
+    ellipse(ctx, cx + 10, Y - 12, 6, 5);
+    ctx.fill();
+    ctx.fillStyle = '#333';
+    circle(ctx, cx - 10, Y - 12, 3.5);
+    ctx.fill();
+    circle(ctx, cx + 10, Y - 12, 3.5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    circle(ctx, cx - 8, Y - 14, 1.5);
+    ctx.fill();
+    circle(ctx, cx + 12, Y - 14, 1.5);
+    ctx.fill();
     // Eyebrows
-    g.fillStyle(0x1a1000);
-    g.fillRoundedRect(cx - 8, Y - 11, 6, 2, 1);
-    g.fillRoundedRect(cx + 2, Y - 11, 6, 2, 1);
+    ctx.fillStyle = '#1a1000';
+    roundRect(ctx, cx - 16, Y - 22, 12, 3.5, 1.5);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y - 22, 12, 3.5, 1.5);
+    ctx.fill();
 
     // Nose
-    g.fillStyle(0xe0b060, 0.5);
-    g.fillCircle(cx, Y - 2, 2);
-    // Nose bridge highlight
-    g.fillStyle(0xfce0a0, 0.2);
-    g.fillCircle(cx - 0.5, Y - 3, 0.8);
+    ctx.fillStyle = 'rgba(224,176,96,0.45)';
+    circle(ctx, cx, Y - 4, 3.5);
+    ctx.fill();
 
     // Mouth
-    g.lineStyle(2, 0xc07a40);
-    g.beginPath();
-    g.arc(cx, Y + 1, 4, 0.1, Math.PI - 0.1, false);
-    g.strokePath();
+    ctx.strokeStyle = '#c07a40';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, Y + 2, 7, 0.15, Math.PI - 0.15, false);
+    ctx.stroke();
 
-    // === Arm holding camera ===
-    g.fillStyle(0x1c4a6e);
-    g.fillRoundedRect(cx + 10, Y + 12, 8, 10, 3);
-    g.fillStyle(0xf5c97a);
-    g.fillRoundedRect(cx + 10, Y + 18, 8, 14, 3);
-    // Finger detail on camera hand
-    g.lineStyle(0.6, darken(0xf5c97a, 0.7), 0.35);
-    g.lineBetween(cx + 12, Y + 30, cx + 12, Y + 32);
-    g.lineBetween(cx + 14, Y + 30, cx + 14, Y + 32);
-    g.lineBetween(cx + 16, Y + 30, cx + 16, Y + 32);
+    // --- Arm holding camera ---
+    ctx.fillStyle = '#1c4a6e';
+    roundRect(ctx, cx + 20, Y + 24, 14, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = '#f5c97a';
+    roundRect(ctx, cx + 20, Y + 36, 14, 26, 5);
+    ctx.fill();
 
-    // === Camera body ===
-    // Camera shadow
-    g.fillStyle(0x000000, 0.2);
-    g.fillRoundedRect(cx + 14, Y + 5, 28, 18, 4);
-    // Body
-    g.fillStyle(0x2a2a2a);
-    g.fillRoundedRect(cx + 12, Y + 2, 28, 18, 4);
+    // --- Camera body ---
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.25)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
+    const camGrad = ctx.createLinearGradient(cx + 24, Y + 4, cx + 24, Y + 40);
+    camGrad.addColorStop(0, '#4a4a4a');
+    camGrad.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = camGrad;
+    roundRect(ctx, cx + 24, Y + 4, 56, 36, 6);
+    ctx.fill();
+    ctx.restore();
+
     // Camera top detail
-    g.fillStyle(0x3a3a3a);
-    g.fillRoundedRect(cx + 14, Y + 3, 24, 5, 2);
+    ctx.fillStyle = '#3a3a3a';
+    roundRect(ctx, cx + 28, Y + 6, 48, 10, 3);
+    ctx.fill();
     // Handle
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx + 16, Y - 6, 16, 9, 3);
-    g.fillStyle(0x333333, 0.4);
-    g.fillRoundedRect(cx + 18, Y - 5, 6, 4, 1);
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx + 32, Y - 12, 32, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(60,60,60,0.4)';
+    roundRect(ctx, cx + 36, Y - 10, 12, 8, 2);
+    ctx.fill();
     // Viewfinder
-    g.fillStyle(0x222222);
-    g.fillRoundedRect(cx + 32, Y + 4, 8, 7, 2);
-    g.fillStyle(0x336699, 0.5);
-    g.fillRoundedRect(cx + 33, Y + 5, 6, 5, 1);
-    // Viewfinder eyepiece (rubber cup)
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx + 39, Y + 4, 4, 7, 2);
-    g.fillStyle(0x2a2a2a, 0.6);
-    g.fillRoundedRect(cx + 40, Y + 5, 2, 5, 1);
-    // Eyepiece rubber ridges
-    g.lineStyle(0.6, 0x333333, 0.5);
-    g.lineBetween(cx + 39, Y + 6, cx + 43, Y + 6);
-    g.lineBetween(cx + 39, Y + 8, cx + 43, Y + 8);
-    g.lineBetween(cx + 39, Y + 10, cx + 43, Y + 10);
-    // Buttons
-    g.fillStyle(0xff2200);
-    g.fillCircle(cx + 36, Y + 2, 2.5);
-    g.fillStyle(0xffffff, 0.5);
-    g.fillCircle(cx + 35.5, Y + 1.5, 0.8);
-    // Lens
-    g.fillStyle(OL);
-    g.fillCircle(cx + 14, Y + 12, 8);
-    g.fillStyle(0x1a1a88);
-    g.fillCircle(cx + 14, Y + 12, 7);
-    g.fillStyle(0x4466dd);
-    g.fillCircle(cx + 14, Y + 12, 5);
-    g.fillStyle(0x6688ee, 0.5);
-    g.fillCircle(cx + 14, Y + 12, 3);
-    g.fillStyle(0xb4dcff, 0.7);
-    g.fillCircle(cx + 12, Y + 10, 2.5);
-    // Lens ring
-    g.lineStyle(1.5, 0x555555);
-    g.strokeCircle(cx + 14, Y + 12, 7.5);
+    ctx.fillStyle = '#222';
+    roundRect(ctx, cx + 64, Y + 8, 16, 14, 3);
+    ctx.fill();
+    const vfGrad = ctx.createLinearGradient(cx + 66, Y + 10, cx + 78, Y + 20);
+    vfGrad.addColorStop(0, '#336699');
+    vfGrad.addColorStop(1, '#1a3355');
+    ctx.fillStyle = vfGrad;
+    roundRect(ctx, cx + 66, Y + 10, 12, 10, 2);
+    ctx.fill();
+    // Eyepiece
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx + 78, Y + 8, 8, 14, 3);
+    ctx.fill();
+    // Red REC button
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,0,0,0.5)';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ff2200';
+    circle(ctx, cx + 72, Y + 4, 4.5);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    circle(ctx, cx + 71, Y + 3, 1.5);
+    ctx.fill();
 
-    // === Cable from camera trailing down ===
-    g.lineStyle(2.5, 0x222222);
-    g.beginPath();
-    g.moveTo(cx + 18, Y + 18);
-    g.lineTo(cx + 20, Y + 28);
-    g.lineTo(cx + 16, Y + 40);
-    g.lineTo(cx + 12, Y + 52);
-    g.strokePath();
+    // Lens
+    const lensGrad = ctx.createRadialGradient(cx + 28, Y + 24, 2, cx + 28, Y + 24, 15);
+    lensGrad.addColorStop(0, '#b4dcff');
+    lensGrad.addColorStop(0.3, '#6688ee');
+    lensGrad.addColorStop(0.6, '#4466dd');
+    lensGrad.addColorStop(0.85, '#1a1a88');
+    lensGrad.addColorStop(1, '#0a0a44');
+    ctx.fillStyle = lensGrad;
+    circle(ctx, cx + 28, Y + 24, 15);
+    ctx.fill();
+    // Lens ring
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 2.5;
+    circle(ctx, cx + 28, Y + 24, 15);
+    ctx.stroke();
+    // Lens flare
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    circle(ctx, cx + 24, Y + 20, 5);
+    ctx.fill();
+
+    // Cable from camera
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx + 36, Y + 36);
+    ctx.bezierCurveTo(cx + 40, Y + 52, cx + 32, Y + 70, cx + 24, Y + 104);
+    ctx.stroke();
     // Cable highlight
-    g.lineStyle(0.8, 0x444444, 0.3);
-    g.beginPath();
-    g.moveTo(cx + 17, Y + 18);
-    g.lineTo(cx + 19, Y + 28);
-    g.strokePath();
-    // Cable connector at camera end
-    g.fillStyle(0x444444);
-    g.fillRoundedRect(cx + 16, Y + 17, 5, 3, 1);
+    ctx.strokeStyle = 'rgba(80,80,80,0.2)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + 35, Y + 36);
+    ctx.bezierCurveTo(cx + 39, Y + 52, cx + 31, Y + 70, cx + 23, Y + 104);
+    ctx.stroke();
 
     // Jacket outline
-    g.lineStyle(1.5, OL, 0.25);
-    g.strokeRoundedRect(cx - 14, Y + 12, 28, 32, 5);
+    ctx.strokeStyle = hexA(0x1a1a2e, 0.18);
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx - 28, Y + 24, 56, 64, 8);
+    ctx.stroke();
+
+    ctx.restore();
 }
 
-/**
- * Draw correspondent (cartoon woman with microphone) — texture 52x102
- * Shifted +38 Y; cx=26
- */
-function drawCorrespondent(g) {
-    const cx = 26;
-    const Y = 38;
+// ========================
+// CORRESPONDENT (woman with microphone) — 104 x 204 canvas
+// ========================
+function drawCorrespondent(ctx) {
+    const cx = 52, Y = 76;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
 
     // Drop shadow
-    g.fillStyle(0x000000, 0.18);
-    g.fillEllipse(cx, Y + 62, 26, 8);
+    ctx.fillStyle = hexA(0x000000, 0.15);
+    ellipse(ctx, cx, Y + 124, 26, 8);
+    ctx.fill();
 
-    // === Heels ===
-    g.fillStyle(0xc0392b);
-    g.fillRoundedRect(cx - 9, Y + 56, 8, 6, 2);
-    g.fillRoundedRect(cx + 1, Y + 56, 8, 6, 2);
+    // --- Heels ---
+    ctx.fillStyle = '#c0392b';
+    roundRect(ctx, cx - 18, Y + 112, 16, 12, 4);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 112, 16, 12, 4);
+    ctx.fill();
     // Heel highlight
-    g.fillStyle(0xdd5544, 0.25);
-    g.fillRoundedRect(cx - 8, Y + 56, 3, 3, 1);
-    g.fillRoundedRect(cx + 2, Y + 56, 3, 3, 1);
-    // Stiletto heel — thin tapered shape
-    g.fillStyle(0x8B0000);
-    g.fillRect(cx - 3, Y + 61, 2, 4);
-    g.fillRect(cx + 5, Y + 61, 2, 4);
-    // Stiletto tip (thinner at bottom)
-    g.fillStyle(0x660000);
-    g.fillRect(cx - 3, Y + 64, 1, 2);
-    g.fillRect(cx + 6, Y + 64, 1, 2);
-    // Sole edge
-    g.fillStyle(0x550000, 0.6);
-    g.fillRect(cx - 9, Y + 61, 8, 1);
-    g.fillRect(cx + 1, Y + 61, 8, 1);
+    const heelGrad = ctx.createLinearGradient(0, Y + 112, 0, Y + 124);
+    heelGrad.addColorStop(0, '#dd5544');
+    heelGrad.addColorStop(1, '#8B0000');
+    ctx.fillStyle = heelGrad;
+    roundRect(ctx, cx - 16, Y + 112, 6, 6, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y + 112, 6, 6, 2);
+    ctx.fill();
+    // Stiletto
+    ctx.fillStyle = '#660000';
+    ctx.fillRect(cx - 6, Y + 123, 3, 6);
+    ctx.fillRect(cx + 10, Y + 123, 3, 6);
 
-    // === Skirt ===
-    // Skirt gradient simulation (3 bands)
-    g.fillStyle(lighten(0x8B0000, 1.1));
-    g.fillRoundedRect(cx - 9, Y + 42, 18, 6, { tl: 4, tr: 4, bl: 0, br: 0 });
-    g.fillStyle(0x8B0000);
-    g.fillRoundedRect(cx - 9, Y + 48, 18, 5, 0);
-    g.fillStyle(darken(0x8B0000, 0.85));
-    g.fillRoundedRect(cx - 9, Y + 53, 18, 5, { tl: 0, tr: 0, bl: 4, br: 4 });
+    // --- Skirt ---
+    const skirtGrad = ctx.createLinearGradient(0, Y + 84, 0, Y + 114);
+    skirtGrad.addColorStop(0, '#aa1515');
+    skirtGrad.addColorStop(1, '#5a0808');
+    ctx.fillStyle = skirtGrad;
+    roundRect(ctx, cx - 18, Y + 84, 36, 30, 6);
+    ctx.fill();
     // Skirt highlight
-    g.fillStyle(0xaa1111, 0.25);
-    g.fillRoundedRect(cx - 6, Y + 43, 6, 14, 3);
-    // Skirt wrinkle/fold lines
-    g.lineStyle(0.8, 0x550000, 0.15);
-    g.lineBetween(cx - 3, Y + 43, cx - 5, Y + 56);
-    g.lineBetween(cx + 2, Y + 44, cx + 4, Y + 55);
+    ctx.fillStyle = hexA(0xcc2222, 0.2);
+    roundRect(ctx, cx - 12, Y + 86, 12, 26, 4);
+    ctx.fill();
 
-    // === Body (red blazer) ===
-    // Blazer gradient simulation (4 bands, darker at bottom)
-    g.fillStyle(lighten(0xc0392b, 1.1), 0.95);
-    g.fillRoundedRect(cx - 13, Y + 12, 26, 8, { tl: 5, tr: 5, bl: 0, br: 0 });
-    g.fillStyle(0xc0392b);
-    g.fillRoundedRect(cx - 13, Y + 20, 26, 8, 0);
-    g.fillStyle(darken(0xc0392b, 0.92), 0.95);
-    g.fillRoundedRect(cx - 13, Y + 28, 26, 8, 0);
-    g.fillStyle(darken(0xc0392b, 0.82), 0.9);
-    g.fillRoundedRect(cx - 13, Y + 36, 26, 8, { tl: 0, tr: 0, bl: 5, br: 5 });
-    // Blazer lapel
-    g.fillStyle(0xa03020);
-    g.fillTriangle(cx - 4, Y + 12, cx, Y + 22, cx - 10, Y + 22);
-    g.fillTriangle(cx + 4, Y + 12, cx, Y + 22, cx + 10, Y + 22);
-    // Lapel edge highlight
-    g.lineStyle(0.6, 0xdd5544, 0.25);
-    g.lineBetween(cx - 4, Y + 12, cx - 10, Y + 22);
-    g.lineBetween(cx + 4, Y + 12, cx + 10, Y + 22);
+    // --- Body (red blazer) ---
+    const blazerGrad = ctx.createLinearGradient(0, Y + 24, 0, Y + 88);
+    blazerGrad.addColorStop(0, '#dd4444');
+    blazerGrad.addColorStop(0.5, '#c0392b');
+    blazerGrad.addColorStop(1, '#7a1a10');
+    ctx.fillStyle = blazerGrad;
+    roundRect(ctx, cx - 26, Y + 24, 52, 64, 8);
+    ctx.fill();
+
+    // Lapels
+    ctx.fillStyle = '#a03020';
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, Y + 24); ctx.lineTo(cx, Y + 44); ctx.lineTo(cx - 20, Y + 44);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 8, Y + 24); ctx.lineTo(cx, Y + 44); ctx.lineTo(cx + 20, Y + 44);
+    ctx.closePath();
+    ctx.fill();
+
     // White blouse
-    g.fillStyle(0xf8f8f8);
-    g.fillRoundedRect(cx - 4, Y + 12, 8, 12, 3);
-    // Button
-    g.fillStyle(0xcccccc);
-    g.fillCircle(cx, Y + 18, 1.5);
-    g.fillCircle(cx, Y + 22, 1.5);
-    // Button shine
-    g.fillStyle(0xffffff, 0.5);
-    g.fillCircle(cx - 0.5, Y + 17.5, 0.5);
-    g.fillCircle(cx - 0.5, Y + 21.5, 0.5);
+    ctx.fillStyle = '#f8f8f8';
+    roundRect(ctx, cx - 8, Y + 24, 16, 24, 4);
+    ctx.fill();
+    // Buttons
+    ctx.fillStyle = '#ccc';
+    circle(ctx, cx, Y + 36, 2.5);
+    ctx.fill();
+    circle(ctx, cx, Y + 44, 2.5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    circle(ctx, cx - 0.8, Y + 35, 0.8);
+    ctx.fill();
+
     // Blazer highlight
-    g.fillStyle(0xdd4444, 0.2);
-    g.fillRoundedRect(cx + 4, Y + 14, 6, 18, 3);
-    // Wrinkle/fold lines on blazer
-    g.lineStyle(0.8, 0x6a1510, 0.15);
-    g.lineBetween(cx - 10, Y + 18, cx - 7, Y + 28);
-    g.lineBetween(cx + 8, Y + 16, cx + 10, Y + 26);
-    g.lineBetween(cx - 9, Y + 32, cx - 5, Y + 40);
+    ctx.fillStyle = hexA(0xee5555, 0.18);
+    roundRect(ctx, cx + 8, Y + 28, 12, 36, 4);
+    ctx.fill();
 
-    // === Press badge / lanyard ===
-    g.lineStyle(1.5, 0xe74c3c, 0.6);
-    g.lineBetween(cx - 2, Y + 10, cx - 4, Y + 26);
-    g.fillStyle(0xffffff);
-    g.fillRoundedRect(cx - 7, Y + 26, 7, 9, 2);
-    g.fillStyle(0xe74c3c);
-    g.fillRect(cx - 6, Y + 27, 5, 3);
-    g.fillStyle(0x333333);
-    g.fillRect(cx - 6, Y + 31, 5, 2);
+    // --- Press badge / lanyard ---
+    ctx.strokeStyle = hexA(0xe74c3c, 0.5);
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, Y + 20);
+    ctx.bezierCurveTo(cx - 6, Y + 32, cx - 8, Y + 42, cx - 8, Y + 52);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, cx - 14, Y + 52, 14, 18, 3);
+    ctx.fill();
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillRect(cx - 12, Y + 54, 10, 6);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(cx - 12, Y + 62, 10, 4);
 
-    // === Neck ===
-    g.fillStyle(0xf5c090);
-    g.fillRoundedRect(cx - 3, Y + 5, 6, 8, 2);
+    // --- Neck ---
+    ctx.fillStyle = '#f5c090';
+    roundRect(ctx, cx - 6, Y + 10, 12, 16, 3);
+    ctx.fill();
 
-    // === Head ===
-    g.fillStyle(OL);
-    g.fillCircle(cx, Y - 4, 14);
-    g.fillStyle(0xf5c090);
-    g.fillCircle(cx, Y - 4, 13);
-    g.fillStyle(0xfcd8b0, 0.25);
-    g.fillCircle(cx - 3, Y - 8, 6);
+    // --- Head ---
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = '#f5c090';
+    circle(ctx, cx, Y - 8, 26);
+    ctx.fill();
+    ctx.restore();
+
+    // Head highlight
+    const corrHeadGrad = ctx.createRadialGradient(cx - 6, Y - 18, 4, cx, Y - 8, 26);
+    corrHeadGrad.addColorStop(0, 'rgba(252,216,176,0.3)');
+    corrHeadGrad.addColorStop(1, 'rgba(245,192,144,0)');
+    ctx.fillStyle = corrHeadGrad;
+    circle(ctx, cx, Y - 8, 26);
+    ctx.fill();
 
     // Ears
-    g.fillStyle(0xe8a870);
-    g.fillCircle(cx - 13, Y - 3, 3.5);
-    g.fillCircle(cx + 13, Y - 3, 3.5);
-    g.fillStyle(0xf5c090);
-    g.fillCircle(cx - 12, Y - 3, 2.5);
-    g.fillCircle(cx + 12, Y - 3, 2.5);
+    ctx.fillStyle = '#e8a870';
+    circle(ctx, cx - 26, Y - 6, 6);
+    ctx.fill();
+    circle(ctx, cx + 26, Y - 6, 6);
+    ctx.fill();
+    ctx.fillStyle = '#f5c090';
+    circle(ctx, cx - 24, Y - 6, 4.5);
+    ctx.fill();
+    circle(ctx, cx + 24, Y - 6, 4.5);
+    ctx.fill();
     // Earrings
-    g.fillStyle(0xffd700);
-    g.fillCircle(cx - 13, Y, 2);
-    g.fillCircle(cx + 13, Y, 2);
-    g.fillStyle(0xffee66, 0.6);
-    g.fillCircle(cx - 13.5, Y - 0.5, 0.8);
-    g.fillCircle(cx + 12.5, Y - 0.5, 0.8);
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,215,0,0.4)';
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = '#ffd700';
+    circle(ctx, cx - 26, Y, 3.5);
+    ctx.fill();
+    circle(ctx, cx + 26, Y, 3.5);
+    ctx.fill();
+    ctx.restore();
 
-    // === Long hair ===
-    // Base hair arc
-    g.fillStyle(0x7B3F20);
-    g.beginPath();
-    g.arc(cx, Y - 10, 13, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair volume — second layer
-    g.fillStyle(0x6B2F10, 0.4);
-    g.beginPath();
-    g.arc(cx + 2, Y - 12, 11, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair volume — top highlight
-    g.fillStyle(0x9B5F40, 0.3);
-    g.beginPath();
-    g.arc(cx - 2, Y - 14, 8, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Hair sides (long)
-    g.fillStyle(0x7B3F20);
-    g.fillRoundedRect(cx - 15, Y - 10, 6, 30, 3);
-    g.fillRoundedRect(cx + 9, Y - 10, 6, 26, 3);
-    // Hair flip/curl at ends — rounded bumps
-    g.fillStyle(0x7B3F20);
-    g.fillCircle(cx - 13, Y + 22, 4);
-    g.fillCircle(cx + 13, Y + 18, 3.5);
+    // --- Long hair ---
+    ctx.fillStyle = '#7B3F20';
+    ctx.beginPath();
+    ctx.arc(cx, Y - 20, 25, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Hair volume
+    ctx.fillStyle = 'rgba(107,47,16,0.4)';
+    ctx.beginPath();
+    ctx.arc(cx + 4, Y - 24, 20, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Hair highlight
+    ctx.fillStyle = 'rgba(155,95,64,0.3)';
+    ctx.beginPath();
+    ctx.arc(cx - 4, Y - 28, 14, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Hair sides (long flowing)
+    const hairSideGrad = ctx.createLinearGradient(0, Y - 20, 0, Y + 44);
+    hairSideGrad.addColorStop(0, '#7B3F20');
+    hairSideGrad.addColorStop(1, '#5B2F10');
+    ctx.fillStyle = hairSideGrad;
+    roundRect(ctx, cx - 30, Y - 20, 10, 60, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 20, Y - 20, 10, 52, 5);
+    ctx.fill();
+    // Hair curl at ends
+    ctx.fillStyle = '#7B3F20';
+    circle(ctx, cx - 26, Y + 44, 7);
+    ctx.fill();
+    circle(ctx, cx + 26, Y + 36, 6);
+    ctx.fill();
     // Curl highlights
-    g.fillStyle(0x9B5F40, 0.25);
-    g.fillCircle(cx - 14, Y + 21, 2);
-    g.fillCircle(cx + 12, Y + 17, 1.8);
-    // Hair strand shapes for volume
-    g.fillStyle(0x8B4F30, 0.15);
-    g.fillRoundedRect(cx - 7, Y - 22, 3, 8, 1);
-    g.fillRoundedRect(cx - 2, Y - 24, 3, 10, 1);
-    g.fillRoundedRect(cx + 3, Y - 22, 3, 8, 1);
-    // Dark strand accents
-    g.fillStyle(0x5B1F00, 0.12);
-    g.fillRoundedRect(cx - 4, Y - 20, 2, 6, 1);
-    g.fillRoundedRect(cx + 1, Y - 21, 2, 7, 1);
-    // Hair highlights on sides
-    g.fillStyle(0x9B5F40, 0.3);
-    g.fillRoundedRect(cx - 14, Y - 8, 3, 20, 1);
-    g.fillRoundedRect(cx + 10, Y - 8, 3, 18, 1);
+    ctx.fillStyle = 'rgba(155,95,64,0.25)';
+    circle(ctx, cx - 28, Y + 42, 3.5);
+    ctx.fill();
+    circle(ctx, cx + 24, Y + 34, 3);
+    ctx.fill();
 
-    // === Chin definition ===
-    g.fillStyle(darken(0xf5c090, 0.78), 0.2);
-    g.beginPath();
-    g.arc(cx, Y + 4, 9, 0, Math.PI, false);
-    g.closePath();
-    g.fillPath();
+    // --- Rosy cheeks ---
+    ctx.fillStyle = 'rgba(255,150,150,0.25)';
+    circle(ctx, cx - 14, Y - 2, 6);
+    ctx.fill();
+    circle(ctx, cx + 14, Y - 2, 6);
+    ctx.fill();
 
-    // === Rosy cheeks ===
-    g.fillStyle(0xff9696, 0.3);
-    g.fillCircle(cx - 7, Y - 1, 3.5);
-    g.fillCircle(cx + 7, Y - 1, 3.5);
-
-    // === Eyes ===
-    g.fillStyle(0xffffff);
-    g.fillEllipse(cx - 5, Y - 6, 7, 6);
-    g.fillEllipse(cx + 5, Y - 6, 7, 6);
-    // Eyelids — thin dark arc above eyes
-    g.lineStyle(1, 0x7a4020, 0.45);
-    g.beginPath();
-    g.arc(cx - 5, Y - 6, 3.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.beginPath();
-    g.arc(cx + 5, Y - 6, 3.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    // Iris
-    g.fillStyle(0x2a6040);
-    g.fillCircle(cx - 5, Y - 6, 2);
-    g.fillCircle(cx + 5, Y - 6, 2);
-    // Iris ring detail
-    g.lineStyle(0.5, 0x1a4030, 0.3);
-    g.strokeCircle(cx - 5, Y - 6, 2);
-    g.strokeCircle(cx + 5, Y - 6, 2);
-    // Pupil
-    g.fillStyle(0x111111);
-    g.fillCircle(cx - 5, Y - 6, 1);
-    g.fillCircle(cx + 5, Y - 6, 1);
+    // --- Eyes ---
+    ctx.fillStyle = '#fff';
+    ellipse(ctx, cx - 10, Y - 12, 7, 5.5);
+    ctx.fill();
+    ellipse(ctx, cx + 10, Y - 12, 7, 5.5);
+    ctx.fill();
+    // Iris (green)
+    const corrIris = ctx.createRadialGradient(cx - 10, Y - 12, 1, cx - 10, Y - 12, 4);
+    corrIris.addColorStop(0, '#1a5030');
+    corrIris.addColorStop(1, '#2a6040');
+    ctx.fillStyle = corrIris;
+    circle(ctx, cx - 10, Y - 12, 4);
+    ctx.fill();
+    circle(ctx, cx + 10, Y - 12, 4);
+    ctx.fill();
+    // Pupils
+    ctx.fillStyle = '#111';
+    circle(ctx, cx - 10, Y - 12, 2);
+    ctx.fill();
+    circle(ctx, cx + 10, Y - 12, 2);
+    ctx.fill();
     // Shine
-    g.fillStyle(0xffffff, 0.9);
-    g.fillCircle(cx - 4, Y - 7, 1);
-    g.fillCircle(cx + 6, Y - 7, 1);
-    // Eyelashes — multiple lash strands
-    g.lineStyle(1.2, 0x3a2010);
-    g.lineBetween(cx - 9, Y - 8, cx - 8, Y - 10);
-    g.lineBetween(cx - 8, Y - 9, cx - 7.5, Y - 11);
-    g.lineBetween(cx + 9, Y - 8, cx + 8, Y - 10);
-    g.lineBetween(cx + 8, Y - 9, cx + 7.5, Y - 11);
-    // Eyebrows (thin, arched)
-    g.lineStyle(1.5, 0x5a3018);
-    g.beginPath();
-    g.arc(cx - 5, Y - 14, 5, 0.3, Math.PI - 0.3, true);
-    g.strokePath();
-    g.beginPath();
-    g.arc(cx + 5, Y - 14, 5, 0.3, Math.PI - 0.3, true);
-    g.strokePath();
-
-    // === Nose ===
-    g.fillStyle(0xe0a878, 0.5);
-    g.fillCircle(cx, Y - 2, 1.5);
-    // Nose bridge highlight
-    g.fillStyle(0xfcd8b0, 0.2);
-    g.fillCircle(cx - 0.5, Y - 3, 0.8);
-
-    // === Lipstick mouth ===
-    g.fillStyle(0xcc2244);
-    g.beginPath();
-    g.arc(cx, Y + 1, 4, 0.1, Math.PI - 0.1, false);
-    g.closePath();
-    g.fillPath();
-    g.fillStyle(0xff4466, 0.4);
-    g.fillCircle(cx, Y + 2, 2);
-    // Lipstick highlight — small white gloss dot
-    g.fillStyle(0xffffff, 0.55);
-    g.fillCircle(cx - 1.5, Y + 1, 1);
-    // Upper lip definition
-    g.lineStyle(0.6, 0x991133, 0.3);
-    g.beginPath();
-    g.arc(cx, Y + 0.5, 3.5, Math.PI + 0.2, -0.2, false);
-    g.strokePath();
-
-    // === Arm with mic ===
-    g.fillStyle(0xc0392b);
-    g.fillRoundedRect(cx - 17, Y + 12, 7, 10, 3);
-    g.fillStyle(0xf5c090);
-    g.fillRoundedRect(cx - 16, Y + 20, 6, 14, 3);
-    // Finger detail on mic hand
-    g.lineStyle(0.6, darken(0xf5c090, 0.7), 0.35);
-    g.lineBetween(cx - 15, Y + 32, cx - 15, Y + 34);
-    g.lineBetween(cx - 13, Y + 32, cx - 13, Y + 34);
-
-    // === Microphone ===
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx - 19, Y + 28, 8, 20, 3);
-    // Gold stripe
-    g.fillStyle(0xffd700);
-    g.fillRect(cx - 19, Y + 34, 8, 3);
-    g.fillRect(cx - 19, Y + 40, 8, 2);
-    // Foam ball
-    g.fillStyle(OL);
-    g.fillCircle(cx - 15, Y + 22, 9.5);
-    g.fillStyle(0xcc0000);
-    g.fillCircle(cx - 15, Y + 22, 9);
-    // Foam texture dots
-    g.fillStyle(0xdd3333, 0.5);
-    g.fillCircle(cx - 18, Y + 20, 2);
-    g.fillCircle(cx - 13, Y + 18, 2.5);
-    g.fillCircle(cx - 11, Y + 24, 2);
-    g.fillCircle(cx - 17, Y + 25, 1.5);
-    // Foam highlight
-    g.fillStyle(0xff5555, 0.35);
-    g.fillCircle(cx - 17, Y + 19, 4);
-
-    // Body outline
-    g.lineStyle(1.5, OL, 0.2);
-    g.strokeRoundedRect(cx - 13, Y + 12, 26, 32, 5);
-}
-
-/**
- * Draw assistant (techie with TVU backpack) — texture 58x100
- * Shifted +36 Y; cx=28
- */
-function drawAssistant(g) {
-    const cx = 28;
-    const Y = 36;
-
-    // Drop shadow
-    g.fillStyle(0x000000, 0.18);
-    g.fillEllipse(cx, Y + 66, 28, 8);
-
-    // === Shoes ===
-    g.fillStyle(0x1a1a1a);
-    g.fillRoundedRect(cx - 10, Y + 58, 10, 7, 3);
-    g.fillRoundedRect(cx + 1, Y + 58, 10, 7, 3);
-    g.fillStyle(0x333333, 0.4);
-    g.fillRoundedRect(cx - 9, Y + 58, 4, 3, 1);
-    g.fillRoundedRect(cx + 2, Y + 58, 4, 3, 1);
-    // Shoe laces — V pattern
-    g.lineStyle(0.7, 0x555555, 0.7);
-    g.lineBetween(cx - 8, Y + 58, cx - 5, Y + 60);
-    g.lineBetween(cx - 5, Y + 60, cx - 8, Y + 62);
-    g.lineBetween(cx + 3, Y + 58, cx + 6, Y + 60);
-    g.lineBetween(cx + 6, Y + 60, cx + 3, Y + 62);
-
-    // === Legs (dark cargo pants) ===
-    g.fillStyle(0x2a2a2a);
-    g.fillRoundedRect(cx - 9, Y + 42, 8, 18, 3);
-    g.fillRoundedRect(cx + 1, Y + 42, 8, 18, 3);
-    // Cargo pockets
-    g.fillStyle(0x333333);
-    g.fillRoundedRect(cx - 8, Y + 49, 6, 5, 1);
-    g.fillRoundedRect(cx + 2, Y + 49, 6, 5, 1);
-    g.lineStyle(0.8, 0x222222, 0.5);
-    g.strokeRoundedRect(cx - 8, Y + 49, 6, 5, 1);
-    g.strokeRoundedRect(cx + 2, Y + 49, 6, 5, 1);
-    // Pants wrinkle at knees
-    g.lineStyle(0.8, 0x1a1a1a, 0.18);
-    g.lineBetween(cx - 8, Y + 46, cx - 4, Y + 48);
-    g.lineBetween(cx + 2, Y + 46, cx + 6, Y + 48);
-
-    // === Body (dark tech vest) ===
-    // Vest gradient simulation (4 bands, darker at bottom)
-    g.fillStyle(lighten(0x383838, 1.12), 0.95);
-    g.fillRoundedRect(cx - 12, Y + 12, 24, 8, { tl: 5, tr: 5, bl: 0, br: 0 });
-    g.fillStyle(0x383838);
-    g.fillRoundedRect(cx - 12, Y + 20, 24, 8, 0);
-    g.fillStyle(darken(0x383838, 0.9), 0.95);
-    g.fillRoundedRect(cx - 12, Y + 28, 24, 8, 0);
-    g.fillStyle(darken(0x383838, 0.8), 0.9);
-    g.fillRoundedRect(cx - 12, Y + 36, 24, 8, { tl: 0, tr: 0, bl: 5, br: 5 });
-    // Vest highlights
-    g.fillStyle(0x4a4a4a, 0.3);
-    g.fillRoundedRect(cx - 10, Y + 13, 6, 28, 3);
-    // Wrinkle/fold lines on vest
-    g.lineStyle(0.8, 0x1a1a1a, 0.15);
-    g.lineBetween(cx - 6, Y + 16, cx - 3, Y + 24);
-    g.lineBetween(cx + 5, Y + 14, cx + 8, Y + 22);
-    g.lineBetween(cx - 8, Y + 28, cx - 4, Y + 36);
-    // Zipper
-    g.fillStyle(0x777777, 0.5);
-    g.fillRect(cx - 1, Y + 14, 2, 28);
-    // Zipper teeth detail
-    g.lineStyle(0.5, 0x999999, 0.3);
-    for (let zy = Y + 16; zy < Y + 40; zy += 3) {
-        g.lineBetween(cx - 1, zy, cx + 1, zy);
-    }
-    // Chest pocket
-    g.fillStyle(0x444444);
-    g.fillRoundedRect(cx + 3, Y + 15, 7, 6, 2);
-    g.lineStyle(0.8, 0x333333, 0.5);
-    g.strokeRoundedRect(cx + 3, Y + 15, 7, 6, 2);
-    // Pen in chest pocket
-    g.fillStyle(0x2244cc);
-    g.fillRect(cx + 8, Y + 13, 1.5, 6);
-    g.fillStyle(0xdddddd);
-    g.fillRect(cx + 8, Y + 13, 1.5, 1.5);
-
-    // === Tool belt ===
-    g.fillStyle(0x5a4020);
-    g.fillRoundedRect(cx - 12, Y + 38, 24, 5, 2);
-    // Belt buckle
-    g.fillStyle(0xaaaaaa);
-    g.fillRoundedRect(cx - 3, Y + 38, 6, 5, 1);
-    // Belt buckle prong
-    g.fillStyle(0x888888);
-    g.fillRect(cx, Y + 39, 1, 3);
-    // Tool pouch
-    g.fillStyle(0x4a3518);
-    g.fillRoundedRect(cx + 8, Y + 37, 6, 7, 2);
-
-    // === Walkie-talkie clipped to belt ===
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx - 11, Y + 36, 5, 10, 2);
-    // Walkie antenna
-    g.fillStyle(0x333333);
-    g.fillRect(cx - 10, Y + 32, 2, 5);
-    // Walkie screen
-    g.fillStyle(0x225522, 0.6);
-    g.fillRect(cx - 10, Y + 37, 3, 3);
-    // Walkie buttons
-    g.fillStyle(0x444444);
-    g.fillRect(cx - 10, Y + 41, 3, 1);
-    g.fillRect(cx - 10, Y + 43, 3, 1);
-
-    // === Neck ===
-    g.fillStyle(0xd4956a);
-    g.fillRoundedRect(cx - 3, Y + 5, 6, 8, 2);
-
-    // === Head ===
-    g.fillStyle(OL);
-    g.fillCircle(cx, Y - 2, 13);
-    g.fillStyle(0xd4956a);
-    g.fillCircle(cx, Y - 2, 12);
-    g.fillStyle(0xe0a87a, 0.25);
-    g.fillCircle(cx - 2, Y - 6, 5);
-
-    // Ears
-    g.fillStyle(0xc08050);
-    g.fillCircle(cx - 12, Y - 1, 3.5);
-    g.fillCircle(cx + 12, Y - 1, 3.5);
-    g.fillStyle(0xd4956a);
-    g.fillCircle(cx - 11, Y - 1, 2.5);
-    g.fillCircle(cx + 11, Y - 1, 2.5);
-
-    // === Chin definition ===
-    g.fillStyle(darken(0xd4956a, 0.78), 0.2);
-    g.beginPath();
-    g.arc(cx, Y + 6, 8, 0, Math.PI, false);
-    g.closePath();
-    g.fillPath();
-
-    // === Hair peeking under cap ===
-    g.fillStyle(0x1a0a00);
-    g.fillRoundedRect(cx - 12, Y - 6, 24, 4, 1);
-    // Hair strand accents under cap
-    g.fillStyle(0x2a1a00, 0.4);
-    g.fillRoundedRect(cx - 10, Y - 7, 3, 5, 1);
-    g.fillRoundedRect(cx + 7, Y - 7, 3, 5, 1);
-
-    // === Cap ===
-    g.fillStyle(0x222222);
-    g.beginPath();
-    g.arc(cx, Y - 10, 13, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Cap volume highlight
-    g.fillStyle(0x333333, 0.3);
-    g.beginPath();
-    g.arc(cx - 2, Y - 14, 8, Math.PI, 0, false);
-    g.closePath();
-    g.fillPath();
-    // Cap seam line
-    g.lineStyle(0.6, 0x333333, 0.3);
-    g.beginPath();
-    g.arc(cx, Y - 12, 11, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    // Cap brim
-    g.fillStyle(0x1a1a1a);
-    g.fillRoundedRect(cx - 16, Y - 10, 32, 5, 2);
-    // Cap brim edge highlight
-    g.fillStyle(0x333333, 0.2);
-    g.fillRect(cx - 14, Y - 10, 28, 1);
-    // Cap logo
-    g.fillStyle(0xe74c3c);
-    g.fillRoundedRect(cx - 5, Y - 18, 10, 5, 2);
-    g.fillStyle(0xffffff, 0.7);
-    g.fillRect(cx - 3, Y - 17, 2, 3);
-    g.fillRect(cx + 1, Y - 17, 2, 3);
-
-    // === Headset ===
-    g.lineStyle(2, 0x444444);
-    g.beginPath();
-    g.arc(cx, Y - 8, 14, Math.PI * 0.6, Math.PI * 0.85, false);
-    g.strokePath();
-    // Mic boom
-    g.lineStyle(1.5, 0x555555);
-    g.lineBetween(cx - 13, Y - 2, cx - 16, Y + 4);
-    g.fillStyle(0x333333);
-    g.fillCircle(cx - 16, Y + 5, 3);
-    g.fillStyle(0x111111);
-    g.fillCircle(cx - 16, Y + 5, 2);
-
-    // === Sunglasses ===
-    // Lens frames (dark rectangular)
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx - 8, Y - 7, 8, 6, 2);
-    g.fillRoundedRect(cx, Y - 7, 8, 6, 2);
-    // Bridge
-    g.fillStyle(0x111111);
-    g.fillRect(cx - 1, Y - 6, 2, 2);
-    // Temple arms (going to ears)
-    g.lineStyle(1.5, 0x111111);
-    g.lineBetween(cx - 8, Y - 5, cx - 12, Y - 3);
-    g.lineBetween(cx + 8, Y - 5, cx + 12, Y - 3);
-    // Lens tint
-    g.fillStyle(0x1a1a44, 0.7);
-    g.fillRoundedRect(cx - 7, Y - 6, 6, 4, 1);
-    g.fillRoundedRect(cx + 1, Y - 6, 6, 4, 1);
-    // Lens reflection
-    g.fillStyle(0xffffff, 0.15);
-    g.fillRoundedRect(cx - 6, Y - 6, 3, 2, 1);
-    g.fillRoundedRect(cx + 2, Y - 6, 3, 2, 1);
-    // Frame highlight
-    g.fillStyle(0x333333, 0.3);
-    g.fillRect(cx - 7, Y - 7, 6, 1);
-    g.fillRect(cx + 1, Y - 7, 6, 1);
-
-    // === Eyes behind glasses (subtle) ===
-    g.fillStyle(0xffffff, 0.3);
-    g.fillEllipse(cx - 4, Y - 4, 5, 4);
-    g.fillEllipse(cx + 4, Y - 4, 5, 4);
-    // Eyelids
-    g.lineStyle(0.8, 0x8a5a30, 0.3);
-    g.beginPath();
-    g.arc(cx - 4, Y - 4, 2.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.beginPath();
-    g.arc(cx + 4, Y - 4, 2.8, Math.PI + 0.3, -0.3, false);
-    g.strokePath();
-    g.fillStyle(0x333333, 0.5);
-    g.fillCircle(cx - 4, Y - 4, 1.2);
-    g.fillCircle(cx + 4, Y - 4, 1.2);
-
-    // Eyebrows
-    g.fillStyle(0x111111);
-    g.fillRoundedRect(cx - 7, Y - 8, 5, 2, 1);
-    g.fillRoundedRect(cx + 2, Y - 8, 5, 2, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    circle(ctx, cx - 8, Y - 14, 2);
+    ctx.fill();
+    circle(ctx, cx + 12, Y - 14, 2);
+    ctx.fill();
+    // Eyelashes
+    ctx.strokeStyle = '#3a2010';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, Y - 16); ctx.lineTo(cx - 16, Y - 20);
+    ctx.moveTo(cx - 16, Y - 18); ctx.lineTo(cx - 15, Y - 22);
+    ctx.moveTo(cx + 18, Y - 16); ctx.lineTo(cx + 16, Y - 20);
+    ctx.moveTo(cx + 16, Y - 18); ctx.lineTo(cx + 15, Y - 22);
+    ctx.stroke();
+    // Eyebrows (arched)
+    ctx.strokeStyle = '#5a3018';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx - 10, Y - 28, 9, 0.3, Math.PI - 0.3, true);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + 10, Y - 28, 9, 0.3, Math.PI - 0.3, true);
+    ctx.stroke();
 
     // Nose
-    g.fillStyle(darken(0xd4956a, 0.88), 0.4);
-    g.fillCircle(cx, Y + 1, 1.5);
+    ctx.fillStyle = 'rgba(224,168,120,0.45)';
+    circle(ctx, cx, Y - 4, 2.5);
+    ctx.fill();
 
-    // Mouth
-    g.lineStyle(2, 0xb07040);
-    g.beginPath();
-    g.arc(cx, Y + 3, 4, 0.15, Math.PI - 0.15, false);
-    g.strokePath();
+    // --- Lipstick mouth ---
+    const lipGrad = ctx.createRadialGradient(cx, Y + 2, 1, cx, Y + 2, 7);
+    lipGrad.addColorStop(0, '#ff4466');
+    lipGrad.addColorStop(1, '#cc2244');
+    ctx.fillStyle = lipGrad;
+    ctx.beginPath();
+    ctx.arc(cx, Y + 2, 7, 0.1, Math.PI - 0.1, false);
+    ctx.closePath();
+    ctx.fill();
+    // Lip gloss
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    circle(ctx, cx - 3, Y + 1, 2);
+    ctx.fill();
 
-    // === TVU backpack (left side) ===
-    // Backpack shadow
-    g.fillStyle(0x000000, 0.2);
-    g.fillRoundedRect(cx - 34, Y + 4, 22, 32, 5);
-    // Backpack body
-    g.fillStyle(0x0d0d0d);
-    g.fillRoundedRect(cx - 36, Y + 2, 22, 32, 5);
-    // Metal frame
-    g.lineStyle(1.5, 0x444444, 0.5);
-    g.strokeRoundedRect(cx - 36, Y + 2, 22, 32, 5);
+    // --- Arm with mic ---
+    ctx.fillStyle = '#c0392b';
+    roundRect(ctx, cx - 34, Y + 24, 14, 18, 5);
+    ctx.fill();
+    ctx.fillStyle = '#f5c090';
+    roundRect(ctx, cx - 32, Y + 40, 12, 28, 5);
+    ctx.fill();
 
-    // Screen
-    g.fillStyle(0x001800);
-    g.fillRoundedRect(cx - 34, Y + 5, 14, 12, 2);
-    // Screen glow
-    g.fillStyle(0x003300, 0.3);
-    g.fillRoundedRect(cx - 33, Y + 6, 12, 10, 1);
+    // --- Microphone ---
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx - 38, Y + 56, 16, 40, 5);
+    ctx.fill();
+    // Gold stripes
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(cx - 38, Y + 68, 16, 5);
+    ctx.fillRect(cx - 38, Y + 80, 16, 3);
+    // Foam ball
+    const foamGrad = ctx.createRadialGradient(cx - 30, Y + 44, 3, cx - 30, Y + 44, 17);
+    foamGrad.addColorStop(0, '#ff5555');
+    foamGrad.addColorStop(0.6, '#cc0000');
+    foamGrad.addColorStop(1, '#880000');
+    ctx.fillStyle = foamGrad;
+    circle(ctx, cx - 30, Y + 44, 17);
+    ctx.fill();
+    // Foam texture
+    ctx.fillStyle = 'rgba(255,80,80,0.35)';
+    circle(ctx, cx - 36, Y + 40, 4);
+    ctx.fill();
+    circle(ctx, cx - 26, Y + 36, 5);
+    ctx.fill();
+    circle(ctx, cx - 22, Y + 48, 4);
+    ctx.fill();
+    // Foam highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    circle(ctx, cx - 34, Y + 38, 7);
+    ctx.fill();
 
-    // LIVE badge
-    g.fillStyle(0xdd1100);
-    g.fillRoundedRect(cx - 34, Y + 5, 7, 5, 1);
-    g.fillStyle(0xff4444, 0.5);
-    g.fillCircle(cx - 33, Y + 7, 1);
+    // Blazer outline
+    ctx.strokeStyle = hexA(0x1a1a2e, 0.15);
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx - 26, Y + 24, 52, 64, 8);
+    ctx.stroke();
 
-    // Signal bars
-    g.fillStyle(0x00cc44);
-    g.fillRect(cx - 24, Y + 9, 2, 8);
-    g.fillStyle(0x00cc44);
-    g.fillRect(cx - 21, Y + 11, 2, 6);
-    g.fillStyle(0x00aa33);
-    g.fillRect(cx - 18, Y + 13, 2, 4);
-
-    // Antenna
-    g.lineStyle(2, 0x888888);
-    g.lineBetween(cx - 28, Y + 2, cx - 28, Y - 8);
-    g.fillStyle(0xff0000);
-    g.fillCircle(cx - 28, Y - 9, 2.5);
-    g.fillStyle(0xff6666, 0.5);
-    g.fillCircle(cx - 29, Y - 10, 1);
-
-    // Power button
-    g.fillStyle(0x00cc44);
-    g.fillCircle(cx - 28, Y + 26, 4);
-    g.fillStyle(0x00ff55, 0.3);
-    g.fillCircle(cx - 29, Y + 25, 2);
-    // Power icon
-    g.lineStyle(1.5, 0x003300);
-    g.beginPath();
-    g.arc(cx - 28, Y + 26, 2.5, -Math.PI * 0.7, Math.PI * 0.7, false);
-    g.strokePath();
-
-    // LEDs
-    g.fillStyle(0x00aaff);
-    g.fillCircle(cx - 34, Y + 22, 1.5);
-    g.fillStyle(0xffaa00);
-    g.fillCircle(cx - 34, Y + 26, 1.5);
-    g.fillStyle(0x00ff00);
-    g.fillCircle(cx - 34, Y + 30, 1.5);
-
-    // Cable from backpack
-    g.lineStyle(2.5, 0x222222);
-    g.beginPath();
-    g.moveTo(cx - 25, Y + 34);
-    g.lineTo(cx - 20, Y + 40);
-    g.lineTo(cx - 12, Y + 42);
-    g.strokePath();
-
-    // Body outline
-    g.lineStyle(1.5, OL, 0.2);
-    g.strokeRoundedRect(cx - 12, Y + 12, 24, 32, 5);
+    ctx.restore();
 }
 
-/**
- * Create all game textures
- */
+// ========================
+// ASSISTANT (techie with TVU backpack) — 116 x 200 canvas
+// ========================
+function drawAssistant(ctx) {
+    const cx = 56, Y = 72;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+
+    // Drop shadow
+    ctx.fillStyle = hexA(0x000000, 0.15);
+    ellipse(ctx, cx, Y + 132, 28, 8);
+    ctx.fill();
+
+    // --- Shoes ---
+    ctx.fillStyle = '#1a1a1a';
+    roundRect(ctx, cx - 20, Y + 116, 18, 14, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 116, 18, 14, 5);
+    ctx.fill();
+
+    // --- Legs (dark cargo pants) ---
+    const cargoGrad = ctx.createLinearGradient(0, Y + 84, 0, Y + 118);
+    cargoGrad.addColorStop(0, '#363636');
+    cargoGrad.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = cargoGrad;
+    roundRect(ctx, cx - 18, Y + 84, 16, 36, 5);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y + 84, 16, 36, 5);
+    ctx.fill();
+    // Cargo pockets
+    ctx.fillStyle = '#3a3a3a';
+    roundRect(ctx, cx - 16, Y + 98, 12, 10, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y + 98, 12, 10, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30,30,30,0.4)';
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, cx - 16, Y + 98, 12, 10, 2);
+    ctx.stroke();
+    roundRect(ctx, cx + 4, Y + 98, 12, 10, 2);
+    ctx.stroke();
+
+    // --- Body (dark tech vest) ---
+    const vestGrad = ctx.createLinearGradient(0, Y + 24, 0, Y + 88);
+    vestGrad.addColorStop(0, '#4a4a4a');
+    vestGrad.addColorStop(0.5, '#383838');
+    vestGrad.addColorStop(1, '#222222');
+    ctx.fillStyle = vestGrad;
+    roundRect(ctx, cx - 24, Y + 24, 48, 64, 8);
+    ctx.fill();
+
+    // Vest highlight
+    ctx.fillStyle = 'rgba(80,80,80,0.2)';
+    roundRect(ctx, cx - 20, Y + 26, 12, 56, 4);
+    ctx.fill();
+
+    // Zipper
+    ctx.fillStyle = 'rgba(120,120,120,0.4)';
+    ctx.fillRect(cx - 2, Y + 28, 4, 56);
+    ctx.strokeStyle = 'rgba(170,170,170,0.2)';
+    ctx.lineWidth = 0.8;
+    for (let zy = Y + 32; zy < Y + 82; zy += 5) {
+        ctx.beginPath();
+        ctx.moveTo(cx - 2, zy); ctx.lineTo(cx + 2, zy);
+        ctx.stroke();
+    }
+
+    // Chest pocket + pen
+    ctx.fillStyle = '#444';
+    roundRect(ctx, cx + 6, Y + 30, 14, 12, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(50,50,50,0.4)';
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, cx + 6, Y + 30, 14, 12, 3);
+    ctx.stroke();
+    ctx.fillStyle = '#2244cc';
+    ctx.fillRect(cx + 16, Y + 26, 3, 12);
+    ctx.fillStyle = '#ddd';
+    ctx.fillRect(cx + 16, Y + 26, 3, 3);
+
+    // --- Tool belt ---
+    const beltGrad = ctx.createLinearGradient(0, Y + 76, 0, Y + 86);
+    beltGrad.addColorStop(0, '#6a5030');
+    beltGrad.addColorStop(1, '#4a3518');
+    ctx.fillStyle = beltGrad;
+    roundRect(ctx, cx - 24, Y + 76, 48, 10, 3);
+    ctx.fill();
+    // Buckle
+    ctx.fillStyle = '#bbb';
+    roundRect(ctx, cx - 6, Y + 76, 12, 10, 2);
+    ctx.fill();
+    ctx.fillStyle = '#888';
+    ctx.fillRect(cx, Y + 78, 2, 6);
+
+    // --- Walkie-talkie ---
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx - 22, Y + 72, 10, 20, 3);
+    ctx.fill();
+    // Antenna
+    ctx.fillStyle = '#444';
+    ctx.fillRect(cx - 20, Y + 64, 4, 10);
+    // Screen
+    ctx.fillStyle = 'rgba(34,85,34,0.5)';
+    ctx.fillRect(cx - 20, Y + 74, 6, 6);
+    // LEDs
+    ctx.fillStyle = '#0f0';
+    circle(ctx, cx - 17, Y + 84, 1.5);
+    ctx.fill();
+
+    // --- Neck ---
+    ctx.fillStyle = '#d4956a';
+    roundRect(ctx, cx - 6, Y + 10, 12, 16, 3);
+    ctx.fill();
+
+    // --- Head ---
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = '#d4956a';
+    circle(ctx, cx, Y - 4, 24);
+    ctx.fill();
+    ctx.restore();
+
+    // Head highlight
+    const asstHeadGrad = ctx.createRadialGradient(cx - 4, Y - 12, 4, cx, Y - 4, 24);
+    asstHeadGrad.addColorStop(0, 'rgba(224,168,122,0.3)');
+    asstHeadGrad.addColorStop(1, 'rgba(212,149,106,0)');
+    ctx.fillStyle = asstHeadGrad;
+    circle(ctx, cx, Y - 4, 24);
+    ctx.fill();
+
+    // Ears
+    ctx.fillStyle = '#c08050';
+    circle(ctx, cx - 24, Y - 2, 6);
+    ctx.fill();
+    circle(ctx, cx + 24, Y - 2, 6);
+    ctx.fill();
+    ctx.fillStyle = '#d4956a';
+    circle(ctx, cx - 22, Y - 2, 4.5);
+    ctx.fill();
+    circle(ctx, cx + 22, Y - 2, 4.5);
+    ctx.fill();
+
+    // --- Hair peeking under cap ---
+    ctx.fillStyle = '#1a0a00';
+    ctx.fillRect(cx - 24, Y - 12, 48, 8);
+
+    // --- Cap ---
+    const capGrad = ctx.createLinearGradient(0, Y - 36, 0, Y - 16);
+    capGrad.addColorStop(0, '#333');
+    capGrad.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = capGrad;
+    ctx.beginPath();
+    ctx.arc(cx, Y - 20, 25, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.fill();
+    // Cap brim
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx - 32, Y - 20, 64, 10, 3);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(60,60,60,0.2)';
+    ctx.fillRect(cx - 28, Y - 20, 56, 2);
+    // Cap logo
+    ctx.fillStyle = '#e74c3c';
+    roundRect(ctx, cx - 10, Y - 36, 20, 10, 3);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(cx - 6, Y - 34, 4, 6);
+    ctx.fillRect(cx + 2, Y - 34, 4, 6);
+
+    // --- Headset ---
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, Y - 16, 27, Math.PI * 0.6, Math.PI * 0.85, false);
+    ctx.stroke();
+    // Mic boom
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 26, Y - 4);
+    ctx.lineTo(cx - 32, Y + 8);
+    ctx.stroke();
+    ctx.fillStyle = '#333';
+    circle(ctx, cx - 32, Y + 10, 5);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    circle(ctx, cx - 32, Y + 10, 3.5);
+    ctx.fill();
+
+    // --- Sunglasses ---
+    ctx.fillStyle = '#111';
+    roundRect(ctx, cx - 16, Y - 14, 16, 12, 3);
+    ctx.fill();
+    roundRect(ctx, cx, Y - 14, 16, 12, 3);
+    ctx.fill();
+    // Bridge
+    ctx.fillStyle = '#111';
+    ctx.fillRect(cx - 2, Y - 12, 4, 4);
+    // Temple arms
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, Y - 10); ctx.lineTo(cx - 24, Y - 6);
+    ctx.moveTo(cx + 16, Y - 10); ctx.lineTo(cx + 24, Y - 6);
+    ctx.stroke();
+    // Lens tint
+    const lensGrad2 = ctx.createLinearGradient(0, Y - 14, 0, Y - 2);
+    lensGrad2.addColorStop(0, 'rgba(30,30,80,0.6)');
+    lensGrad2.addColorStop(1, 'rgba(20,20,60,0.8)');
+    ctx.fillStyle = lensGrad2;
+    roundRect(ctx, cx - 14, Y - 12, 12, 8, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 2, Y - 12, 12, 8, 2);
+    ctx.fill();
+    // Lens reflection
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    roundRect(ctx, cx - 12, Y - 12, 6, 4, 2);
+    ctx.fill();
+    roundRect(ctx, cx + 4, Y - 12, 6, 4, 2);
+    ctx.fill();
+
+    // Nose
+    ctx.fillStyle = 'rgba(170,100,60,0.35)';
+    circle(ctx, cx, Y + 2, 2.5);
+    ctx.fill();
+
+    // Mouth
+    ctx.strokeStyle = '#b07040';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, Y + 6, 7, 0.15, Math.PI - 0.15, false);
+    ctx.stroke();
+
+    // --- TVU backpack (left side) ---
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetX = -2;
+    ctx.shadowOffsetY = 3;
+    const bpGrad = ctx.createLinearGradient(cx - 72, Y + 4, cx - 28, Y + 4);
+    bpGrad.addColorStop(0, '#1a1a1a');
+    bpGrad.addColorStop(1, '#0a0a0a');
+    ctx.fillStyle = bpGrad;
+    roundRect(ctx, cx - 72, Y + 4, 44, 64, 8);
+    ctx.fill();
+    ctx.restore();
+
+    // Metal frame
+    ctx.strokeStyle = 'rgba(80,80,80,0.4)';
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, cx - 72, Y + 4, 44, 64, 8);
+    ctx.stroke();
+
+    // Screen
+    ctx.fillStyle = '#001800';
+    roundRect(ctx, cx - 68, Y + 10, 28, 24, 3);
+    ctx.fill();
+    // Screen glow
+    const screenGlow = ctx.createRadialGradient(cx - 54, Y + 22, 2, cx - 54, Y + 22, 14);
+    screenGlow.addColorStop(0, 'rgba(0,60,0,0.3)');
+    screenGlow.addColorStop(1, 'rgba(0,30,0,0)');
+    ctx.fillStyle = screenGlow;
+    roundRect(ctx, cx - 66, Y + 12, 24, 20, 2);
+    ctx.fill();
+
+    // LIVE badge
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,0,0,0.5)';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#dd1100';
+    roundRect(ctx, cx - 68, Y + 10, 14, 10, 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,80,80,0.5)';
+    circle(ctx, cx - 66, Y + 14, 2);
+    ctx.fill();
+
+    // Signal bars
+    ctx.fillStyle = '#00cc44';
+    ctx.fillRect(cx - 48, Y + 18, 4, 16);
+    ctx.fillStyle = '#00aa33';
+    ctx.fillRect(cx - 42, Y + 22, 4, 12);
+    ctx.fillStyle = '#008822';
+    ctx.fillRect(cx - 36, Y + 26, 4, 8);
+
+    // Antenna
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - 56, Y + 4);
+    ctx.lineTo(cx - 56, Y - 16);
+    ctx.stroke();
+    // Antenna light
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,0,0,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ff0000';
+    circle(ctx, cx - 56, Y - 18, 4.5);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,100,100,0.4)';
+    circle(ctx, cx - 58, Y - 20, 2);
+    ctx.fill();
+
+    // Power button
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,255,0,0.4)';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#00cc44';
+    circle(ctx, cx - 56, Y + 52, 7);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,255,80,0.25)';
+    circle(ctx, cx - 58, Y + 50, 3.5);
+    ctx.fill();
+
+    // LEDs
+    ctx.fillStyle = '#00aaff';
+    circle(ctx, cx - 68, Y + 44, 2.5);
+    ctx.fill();
+    ctx.fillStyle = '#ffaa00';
+    circle(ctx, cx - 68, Y + 52, 2.5);
+    ctx.fill();
+    ctx.fillStyle = '#00ff00';
+    circle(ctx, cx - 68, Y + 60, 2.5);
+    ctx.fill();
+
+    // Cable from backpack
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - 50, Y + 68);
+    ctx.bezierCurveTo(cx - 40, Y + 78, cx - 30, Y + 82, cx - 24, Y + 84);
+    ctx.stroke();
+
+    // Body outline
+    ctx.strokeStyle = hexA(0x1a1a2e, 0.15);
+    ctx.lineWidth = 2;
+    roundRect(ctx, cx - 24, Y + 24, 48, 64, 8);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// ========================
+// Create all textures via CanvasTexture
+// ========================
 export function createTextures(scene) {
-    // Skip if textures already exist (scene restart)
     if (scene.textures.exists('operator')) return;
 
-    // Operator (72x106)
-    const op = scene.add.graphics();
-    drawOperator(op);
-    op.generateTexture('operator', 72, 106);
-    op.destroy();
+    // --- Operator (144x212) ---
+    const opTex = scene.textures.createCanvas('operator', 144, 212);
+    drawOperator(opTex.getContext());
+    opTex.refresh();
 
-    // Correspondent (52x102)
-    const corr = scene.add.graphics();
-    drawCorrespondent(corr);
-    corr.generateTexture('correspondent', 52, 102);
-    corr.destroy();
+    // --- Correspondent (104x204) ---
+    const corrTex = scene.textures.createCanvas('correspondent', 104, 204);
+    drawCorrespondent(corrTex.getContext());
+    corrTex.refresh();
 
-    // Assistant (58x100)
-    const asst = scene.add.graphics();
-    drawAssistant(asst);
-    asst.generateTexture('assistant', 58, 100);
-    asst.destroy();
+    // --- Assistant (116x200) ---
+    const asstTex = scene.textures.createCanvas('assistant', 116, 200);
+    drawAssistant(asstTex.getContext());
+    asstTex.refresh();
 
-    // Football players (pool of 24 variants — 48x110)
+    // --- Football players (96x220 each, 24 variants) ---
     const combo = TEAM_COMBOS[0];
     for (let i = 0; i < 24; i++) {
         const team = i < 12 ? 'a' : 'b';
         const c = combo[team];
         const skin = SKINS[(i * 5 + 1) % SKINS.length];
         const hair = HAIRS[(i * 7 + 3) % HAIRS.length];
-        const pg = scene.add.graphics();
-        drawPlayer(pg, c.k, c.kd, c.s, skin, hair);
-        pg.generateTexture(`player_${i}`, 48, 110);
-        pg.destroy();
+        const tex = scene.textures.createCanvas(`player_${i}`, 96, 220);
+        drawPlayer(tex.getContext(), c.k, c.kd, c.s, skin, hair);
+        tex.refresh();
     }
 
-    // Smoke puff
-    const smoke = scene.add.graphics();
-    smoke.fillStyle(0xd2d2c3, 0.5);
-    smoke.fillCircle(6, 6, 6);
-    smoke.generateTexture('smoke', 12, 12);
-    smoke.destroy();
+    // --- Smoke puff (24x24) ---
+    const smokeTex = scene.textures.createCanvas('smoke', 24, 24);
+    const sCtx = smokeTex.getContext();
+    const smokeGrad = sCtx.createRadialGradient(12, 12, 2, 12, 12, 12);
+    smokeGrad.addColorStop(0, 'rgba(210,210,195,0.6)');
+    smokeGrad.addColorStop(1, 'rgba(210,210,195,0)');
+    sCtx.fillStyle = smokeGrad;
+    sCtx.beginPath();
+    sCtx.arc(12, 12, 12, 0, Math.PI * 2);
+    sCtx.fill();
+    smokeTex.refresh();
 }
 
 /**

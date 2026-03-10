@@ -10,9 +10,20 @@ export class MainMenu extends Scene {
         const W = 540, H = 960;
         const TOP_UI = 62, BOTTOM_UI = 54, CROWD_H = 28;
 
-        drawField(this, W, H, TOP_UI, BOTTOM_UI, CROWD_H, CROWD_H);
-        drawCrowd(this, 0, TOP_UI, W, CROWD_H);
-        drawCrowd(this, 0, H - BOTTOM_UI - CROWD_H, W, CROWD_H);
+        if (!this.textures.exists('_field')) {
+            drawField(this, W, H, TOP_UI, BOTTOM_UI, CROWD_H, CROWD_H);
+        }
+        this.add.image(W / 2, H / 2, '_field').setDepth(-1);
+
+        if (!this.textures.exists('_crowdTop')) {
+            drawCrowd(this, 0, 0, W, CROWD_H, '_crowdTop');
+        }
+        this.add.image(W / 2, TOP_UI + CROWD_H / 2, '_crowdTop').setDepth(0);
+
+        if (!this.textures.exists('_crowdBot')) {
+            drawCrowd(this, 0, 0, W, CROWD_H, '_crowdBot');
+        }
+        this.add.image(W / 2, H - BOTTOM_UI - CROWD_H / 2, '_crowdBot').setDepth(0);
 
         // Dark overlay
         const overlay = this.add.graphics();
