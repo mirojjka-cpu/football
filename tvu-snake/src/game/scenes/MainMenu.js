@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import { drawField } from '../utils/field';
+import { drawField, drawCrowd } from '../utils/field';
 
 export class MainMenu extends Scene {
     constructor() {
@@ -7,62 +7,95 @@ export class MainMenu extends Scene {
     }
 
     create() {
-        const { width, height } = this.scale;
+        const W = 540, H = 960;
+        const TOP_UI = 62, BOTTOM_UI = 54, CROWD_H = 28;
 
-        drawField(this, width, height, 60, 50);
+        drawField(this, W, H, TOP_UI, BOTTOM_UI, CROWD_H, CROWD_H);
+        drawCrowd(this, 0, TOP_UI, W, CROWD_H);
+        drawCrowd(this, 0, H - BOTTOM_UI - CROWD_H, W, CROWD_H);
 
         // Dark overlay
         const overlay = this.add.graphics();
-        overlay.fillStyle(0x000000, 0.5);
-        overlay.fillRect(0, 0, width, height);
+        overlay.fillStyle(0x000000, 0.82);
+        overlay.fillRect(0, 0, W, H);
 
-        // Title
-        this.add.text(width / 2, height / 2 - 120, 'TVU SNAKE', {
-            fontFamily: '"Press Start 2P", monospace',
-            fontSize: 36,
-            color: '#ffffff',
-            stroke: '#1a1a2e',
-            strokeThickness: 6
+        // Panel
+        const PW = 340, PH = 380;
+        const PX = W / 2 - PW / 2, PY = H / 2 - PH / 2 - 10;
+
+        const panel = this.add.graphics();
+        panel.fillStyle(0x16213e);
+        panel.fillRoundedRect(PX, PY, PW, PH, 16);
+        panel.lineStyle(4, 0x1a1a2e);
+        panel.strokeRoundedRect(PX, PY, PW, PH, 16);
+
+        // Title bar (red)
+        panel.fillStyle(0xe74c3c);
+        panel.fillRoundedRect(PX, PY, PW, 62, 16);
+        panel.fillStyle(0xc0392b);
+        panel.fillRect(PX, PY + 32, PW, 30);
+        // Gold border
+        panel.lineStyle(2, 0xf39c12);
+        panel.strokeRect(PX + 4, PY + 4, PW - 8, PH - 8);
+
+        this.add.text(W / 2, PY + 22, 'МАТЧ ТВ', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 22, color: '#ffffff',
+        }).setOrigin(0.5);
+        this.add.text(W / 2, PY + 46, 'ИНТЕРВЬЮ', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 14, color: '#ffffff',
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, height / 2 - 70, 'Интервью после матча', {
-            fontFamily: '"Press Start 2P", monospace',
-            fontSize: 12,
-            color: '#cccccc',
-            stroke: '#1a1a2e',
-            strokeThickness: 3
+        // Rules
+        const RY = PY + 82;
+        this.add.text(W / 2, RY, '── КАК ИГРАТЬ ──', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 10, color: '#f39c12',
         }).setOrigin(0.5);
 
-        // Instructions
-        const lines = [
-            '↑←↓→ / WASD — управление',
-            'свайп на мобильных',
-            '',
-            'Лови игроков для интервью!',
-            'Не наступай на кабель!',
-            'Успей за 5 минут!',
+        const rules = [
+            '🎙️  Подходи к игрокам',
+            '     и бери интервью',
+            '🚬  После каждого ассистент',
+            '     курит — кабель удлиняется',
+            '⚡  Не наступи на кабель!',
+            '     Оператор упадёт 📷💥',
+            '⏱️  Успей опросить всех',
+            '     за 5 минут',
         ];
 
-        lines.forEach((text, i) => {
-            this.add.text(width / 2, height / 2 - 10 + i * 24, text, {
-                fontFamily: '"Press Start 2P", monospace',
-                fontSize: 9,
-                color: '#aaaaaa',
-            }).setOrigin(0.5);
+        rules.forEach((text, i) => {
+            this.add.text(PX + 20, RY + 20 + i * 22, text, {
+                fontFamily: '"Press Start 2P", monospace', fontSize: 9,
+                color: i % 2 === 0 ? '#ecf0f1' : '#8899bb',
+            });
         });
 
+        // Tip
+        this.add.text(W / 2, PY + 286, 'тап по полю — команда идёт туда', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 8, color: '#ffffc8',
+        }).setOrigin(0.5).setAlpha(0.35);
+
         // Start button
-        const btn = this.add.text(width / 2, height / 2 + 160, '▶  НАЧАТЬ СЪЁМКУ', {
-            fontFamily: '"Press Start 2P", monospace',
-            fontSize: 14,
-            color: '#ffffff',
-            backgroundColor: '#cc3333',
-            padding: { x: 20, y: 12 }
+        const btn = this.add.text(W / 2, PY + 320, '►  В ЭФИР!  ◄', {
+            fontFamily: '"Press Start 2P", monospace', fontSize: 14, color: '#ffffff',
+            backgroundColor: '#e74c3c', padding: { x: 20, y: 12 },
         }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
-        btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#aa2222' }));
-        btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#cc3333' }));
+        this.tweens.add({
+            targets: btn, alpha: 0.6, duration: 600,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+
+        btn.on('pointerover', () => btn.setStyle({ backgroundColor: '#c0392b' }));
+        btn.on('pointerout', () => btn.setStyle({ backgroundColor: '#e74c3c' }));
         btn.on('pointerdown', () => this.scene.start('Game'));
+
+        // Best score
+        const best = parseInt(localStorage.getItem('tvu_best') || '0');
+        if (best > 0) {
+            this.add.text(W / 2, PY + 360, `★ рекорд: ${best} ★`, {
+                fontFamily: '"Press Start 2P", monospace', fontSize: 10, color: '#ffd700',
+            }).setOrigin(0.5);
+        }
 
         this.input.keyboard.once('keydown', () => this.scene.start('Game'));
     }
